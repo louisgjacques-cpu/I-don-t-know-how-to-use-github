@@ -1,49 +1,42 @@
-# Grocery Finder — Auth0 account features (drop-in kit)
+# Grocery Finder — Auth0 account kit (self-contained)
 
-Adds to your existing site, without touching `app.js` or `stores.js`:
+Everything now works **on its own** — you don't need your original site files:
 
-* **One-click Google sign-in** — Auth0 Universal Login, sidebar/topbar button
-* **My Stores** — save any search's stores + a one-tap "search my area again"
-* **Shopping list** — autocomplete over your 400 ingredients, priced against
-  `data/superstore-prices.json` with a running total
-* **Price-drop alerts** — watch a category (eggs, rice, butter, beef…), get a
-  badge + feed entry when the cheapest unit price drops or hits your target
+* Search stores by postal code / address (OpenStreetMap, 9 chains, map + receipt)
+* Dark/light mode, progress bar
+* **Sign up / Log in with Google** (Auth0) + **My Stores**, **Shopping list**, **Price alerts**
 
-## Setup (10 minutes)
+## Run it (Windows)
 
-1. **Copy the files** into your repo root, next to your existing
-   `app.js`, `stores.js`, `style.css`. Replace your `index.html` with this one
-   (or just apply the `NEW`-marked chunks to your own file).
+Double-click **1_START_SITE.bat**, or run `python -m http.server 8000`
+and open http://localhost:8000
 
-2. **Auth0 app**: dashboard → Applications → Create Application →
-   type **Single Page Web Application**. From its Settings copy:
-   * **Domain** → `AUTH0_DOMAIN` at the top of `account.js`
-   * **Client ID** → `AUTH0_CLIENT_ID`
+> Opening index.html directly (double-click, file://) shows the site, but
+> sign-in and the shopping-list pricing need the local server above.
 
-3. **Allowed URLs** (same Settings page) — add, one per line:
-   * Allowed Callback URLs: `http://localhost:8000` (plus your real URL later)
-   * Allowed Logout URLs: `http://localhost:8000`
-   * Allowed Web Origins: `http://localhost:8000`
+## Turn on the account features
 
-4. **Google login**: Authentication → Social → Google → enable it
-   (Google gives you a free client ID/secret in the Auth0 flow). Until it's
-   enabled, the button automatically falls back to the normal email/password
-   hosted login — nothing breaks.
+1. Auth0 dashboard → Applications → Create → **Single Page Web Application**
+2. Copy its **Domain** and **Client ID** into the two constants at the top of `account.js`
+3. In the same Auth0 app settings, add `http://localhost:8000` to
+   **Allowed Callback URLs**, **Allowed Logout URLs** and **Allowed Web Origins**
+4. Authentication → Social → Google → enable (free). Until then the sign-in
+   button uses Auth0's normal email/password page.
 
-5. **Real prices**: run your `import_superstore_prices.mjs` and copy its
-   `data/superstore-prices.json` here, replacing the sample.
+## Price alerts / shopping-list pricing
 
-6. **Run**: `python -m http.server 8000` → open `http://localhost:8000`.
+`data/superstore-prices.json` ships with **sample** prices. Run your
+`import_superstore_prices.mjs` and replace it with the real output.
 
-## Known limits (and the upgrade path)
+## Files
 
-* Saved data is **per browser** (localStorage keyed by Auth0 user). Cross-device
-  sync needs a tiny backend — the natural next step is exchanging the Auth0
-  token for a **Firebase custom token** and storing the same JSON in your
-  existing Firestore, secured per-uid.
-* Alerts are **in-app** (badge + feed). Email/push alerts need a small server
-  (or a scheduled job) that emails the watched list — the Auth0-verified email
-  each user gets at signup is what you'd send to.
-* Shopping-list pricing matches items to products by shared words and prices
-  the cheapest matching package — good for eggs/rice/butter/beef, rough for
-  anything not in the price file yet.
+| File | What it is |
+| --- | --- |
+| `index.html` | The whole page: search, receipt, map, account drawer |
+| `style.css` | Complete styling (dark mode included) |
+| `app.js` | Search, map, progress bar, theme |
+| `stores.js` | Store lookup via the Overpass API |
+| `account.css` / `account.js` | Account drawer + Auth0 login + the three features |
+| `ingredients.js` | 400-ingredient autocomplete list |
+| `data/superstore-prices.json` | Price snapshot (SAMPLE) |
+| `1_START_SITE.bat` | Double-click launcher (Windows) |
