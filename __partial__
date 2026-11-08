@@ -1,0 +1,10 @@
+    <div id="user-box">
+      <div id="user-when-out">
+        <p id="signin-note" class="drawer-note">One click with Google. Save stores, build a shopping list and get price-drop alerts.</p>
+        <button type="button" id="auth-signin-btn" class="accent-btn">Sign up / Log in with Google</button>
+      </div>
+      <div id="user-when-in" hidden>
+        <p id="user-chip" class="user-chip"></p>
+        <button type="button" id="auth-signout-btn" class="ghost-btn">Log out</button>
+      </div>
+    </div>

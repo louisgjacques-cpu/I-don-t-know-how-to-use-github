@@ -16,6 +16,7 @@
   var LS_PREFIX  = 'gf-account-';
 
   var auth0  = null;
+  var auth0Error = null;
   var user   = null;
   var prices = null;
   var data   = emptyData();
@@ -63,24 +64,49 @@
     });
   }
 
+  function onFileProtocol() {
+    return window.location.protocol === 'file:';
+  }
+
   function signIn() {
+    if (onFileProtocol()) {
+      alert('Sign-in needs the site served at http://localhost:8000\n\n' +
+        'You opened this file by double-clicking (the address starts with File:///).\n' +
+        'Open the folder, type cmd in the address bar, then run:\n' +
+        '  python -m http.server 8000\n' +
+        'and visit http://localhost:8000');
+      return;
+    }
+    if (!auth0) {
+      alert('Sign-in could not start.\n\nDetails: ' + (auth0Error || 'Auth0 did not load') +
+        '\n\nCommon causes:\n' +
+        '1) The Auth0 Domain in account.js does not match the Domain shown in your app\'s Settings page.\n' +
+        '2) No internet connection.');
+      return;
+    }
     // One-click Google; falls back to the normal hosted login if the
     // Google connection isn't enabled yet in the Auth0 dashboard.
     var google = { connection: 'google-oauth2', screen_hint: 'signup' };
-    return auth0.loginWithRedirect({ authorizationParams: google })
-      .catch(function () {
+    auth0.loginWithRedirect({ authorizationParams: google })
+      .catch(function (err) {
+        console.warn('Google login failed, trying normal login:', err);
         return auth0.loginWithRedirect({
           authorizationParams: { screen_hint: 'signup', redirect_uri: window.location.origin }
         });
+      })
+      .catch(function (err) {
+        alert('Sign-in failed to start.\n\nDetails: ' + (err && (err.message || err.error_description || err.error) ? (err.message || err.error_description || err.error) : String(err)) +
+          '\n\nCheck the Allowed Callback/Logout/Web Origins in your Auth0 app contain exactly: http://localhost:8000');
       });
   }
 
   function signOut() {
+    if (!auth0) return;
     return auth0.logout({ logoutParams: { returnTo: window.location.origin } });
   }
 
   function renderUser() {
-    var inBox = $('user-when-in'), outBox = $('user-when-out');
+    var inBox = $('user-when-in'), outBox = $('user-when-out'), note = $('signin-note');
     if (user) {
       inBox.hidden = false; outBox.hidden = true;
       $('user-chip').innerHTML = '👋 <strong>' + esc(user.name || user.email) + '</strong>' +
@@ -89,6 +115,16 @@
     } else {
       inBox.hidden = true; outBox.hidden = false;
       $('account-open-btn').textContent = 'Sign in';
+      if (note) {
+        if (onFileProtocol()) {
+          note.innerHTML = '<strong>Sign-in needs the server.</strong> Open the folder, type <strong>cmd</strong> in the address bar, run <strong>python -m http.server 8000</strong>, and visit http://localhost:8000.';
+        } else if (!auth0) {
+          note.innerHTML = '<strong>Sign-in couldn\'t connect to Auth0.</strong> ' +
+            'Open your Auth0 app → Settings and check the <strong>Domain</strong> field. ' +
+            'It must exactly match what\'s at the top of account.js.' +
+            (auth0Error ? '<br><span class="dim">Details: ' + esc(auth0Error) + '</span>' : '');
+        }
+      }
     }
   }
 
@@ -209,8 +245,6 @@
       .then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; })
       .then(function (p) {
-        // Opening the page by double-click (file://) blocks fetch(), so
-        // fall back to the bundled copy in data/prices-data.js.
         if (!p && typeof SUPERSTORE_PRICES !== 'undefined') p = SUPERSTORE_PRICES;
         return p;
       });
@@ -235,7 +269,6 @@
     return basis === 'per 100 g' ? '/100g' : '/egg';
   }
 
-  // Match a shopping-list item to products by shared words.
   function matchProducts(itemName) {
     var words = itemName.toLowerCase().split(/[^a-z]+/).filter(function (w) { return w.length >= 4; });
     if (!words.length) return [];
@@ -322,7 +355,7 @@
   }
 
   // ---------- weekly budget (optional) ----------
-  function renderBudgetLine(total, priced) {
+  function renderBudgetLine(total) {
     var el = $('budget-line');
     if (!data.budget) { el.hidden = true; return; }
     var left = data.budget - total;
@@ -362,14 +395,11 @@
   }
 
   function addRecipeToList(recipe) {
-    var added = 0, skipped = 0;
     recipe.items.forEach(function (n) {
-      if (data.list.some(function (i) { return i.name === n; })) { skipped++; return; }
+      if (data.list.some(function (i) { return i.name === n; })) return;
       data.list.push({ name: n, checked: false, pantry: false, matches: matchProducts(n).slice(0, 3) });
-      added++;
     });
     saveData(); renderList();
-    // jump to the list so the user sees the result
     var tab = document.querySelector('.drawer-tab[data-tab="list"]');
     if (tab) tab.click();
   }
@@ -417,11 +447,11 @@
     var btn = $('copy-sync-btn');
     var code = encodeData();
     var done = function (ok) {
-      btn.textContent = ok ? 'Copied ✓ — paste it on the other device' : 'Copy failed — select & copy the code below';
+      btn.textContent = ok ? 'Copied ✓ — paste it on the other device' : 'Copy failed — the code is now in the box below';
       setTimeout(function () { btn.textContent = 'Copy sync code from this device'; }, 2500);
       if (!ok) {
         var inp = $('sync-input');
-        inp.value = code; inp.select && inp.select();
+        inp.value = code;
       }
     };
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -445,7 +475,7 @@
     }
   }
 
-  // ---------- price watches (simple: one tap, feed only) ----------
+  // ---------- price watches ----------
   function addAlert() {
     var cat = $('alert-category').value;
     if (!cat) return;
@@ -553,7 +583,6 @@
     $('list-input').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addItem(); } });
     $('add-alert-btn').addEventListener('click', addAlert);
 
-    // extras
     $('add-recipe-btn').addEventListener('click', addRecipe);
     $('recipe-ingredients').addEventListener('keydown', function (e) { if (e.key === 'Enter') addRecipe(); });
     $('set-budget-btn').addEventListener('click', setBudget);
@@ -566,13 +595,11 @@
       t.addEventListener('click', function () { if (t.getAttribute('data-tab') === 'alerts') markFeedSeen(); });
     });
 
-    // ingredient autocomplete
     var dl = $('ingredients-datalist');
     (typeof INGREDIENTS !== 'undefined' ? INGREDIENTS : []).forEach(function (ing) {
       var o = document.createElement('option'); o.value = ing; dl.appendChild(o);
     });
 
-    // watch categories from the price file
     var sel = $('alert-category');
     categories().forEach(function (c) {
       var o = document.createElement('option'); o.value = c;
@@ -584,15 +611,19 @@
   async function init() {
     wireDrawer();
 
-    try {
-      auth0 = await makeClient();
-      if (window.location.search.indexOf('code=') > -1) {
-        await auth0.handleRedirectCallback();
-        window.history.replaceState({}, '', window.location.pathname);
+    if (!onFileProtocol()) {
+      try {
+        auth0 = await makeClient();
+        if (window.location.search.indexOf('code=') > -1) {
+          await auth0.handleRedirectCallback();
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+        user = await auth0.getUser();
+      } catch (e) {
+        auth0Error = (e && (e.message || e.error_description || e.error)) ? (e.message || e.error_description || e.error) : String(e);
+        auth0 = null;
+        console.warn('Auth0 init failed:', e);
       }
-      user = await auth0.getUser();
-    } catch (e) {
-      console.warn('Auth0 init failed:', e);
     }
 
     renderUser();
@@ -600,7 +631,7 @@
     wire();
     prices = await loadPrices();
     renderStores(); renderList(); renderAlerts(); renderFeed(); renderBadge(); renderRecipes();
-    checkAlerts();  // prices are checked automatically on every visit
+    checkAlerts();
   }
 
   init();
