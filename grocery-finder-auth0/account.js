@@ -41,7 +41,6 @@
     Object.keys(base).forEach(function (k) { if (data[k] == null) data[k] = base[k]; });
     if (!data.feed) data.feed = [];
     if (!data.lastPrices) data.lastPrices = {};
-    // Simplified watches: one per category, no price targets.
     data.alerts = (data.alerts || []).map(function (a) {
       return { category: a.category || String(a.id || '').split(':')[0], createdAt: a.createdAt || new Date().toISOString() };
     }).filter(function (a, i, all) {
@@ -81,11 +80,9 @@
       alert('Sign-in could not start.\n\nDetails: ' + (auth0Error || 'Auth0 did not load') +
         '\n\nCommon causes:\n' +
         '1) The Auth0 Domain in account.js does not match the Domain shown in your app\'s Settings page.\n' +
-        '2) No internet connection.');
+        '2) An ad-blocker or security extension is blocking the Auth0 script — try pausing it for localhost.');
       return;
     }
-    // One-click Google; falls back to the normal hosted login if the
-    // Google connection isn't enabled yet in the Auth0 dashboard.
     var google = { connection: 'google-oauth2', screen_hint: 'signup' };
     auth0.loginWithRedirect({ authorizationParams: google })
       .catch(function (err) {
@@ -120,9 +117,8 @@
           note.innerHTML = '<strong>Sign-in needs the server.</strong> Open the folder, type <strong>cmd</strong> in the address bar, run <strong>python -m http.server 8000</strong>, and visit http://localhost:8000.';
         } else if (!auth0) {
           note.innerHTML = '<strong>Sign-in couldn\'t connect to Auth0.</strong> ' +
-            'Open your Auth0 app → Settings and check the <strong>Domain</strong> field. ' +
-            'It must exactly match what\'s at the top of account.js.' +
-            (auth0Error ? '<br><span class="dim">Details: ' + esc(auth0Error) + '</span>' : '');
+            (auth0Error || 'The sign-in library did not load.') +
+            '<br><span class="dim">If an ad-blocker is on, allow scripts on localhost and refresh.</span>';
         }
       }
     }
@@ -345,13 +341,13 @@
       li.textContent = 'Empty list. Type an ingredient — try butter, eggs or rice.';
       ul.appendChild(li);
       $('list-total').textContent = '';
-      renderBudgetLine(0, 0);
+      renderBudgetLine(0);
       return;
     }
     $('list-total').textContent = priced
       ? 'To buy: about ' + money(total) + ' at Superstore (' + priced + ' item' + (priced === 1 ? '' : 's') + ' priced, cheapest package each)'
       : 'Add items to price them';
-    renderBudgetLine(total, priced);
+    renderBudgetLine(total);
   }
 
   // ---------- weekly budget (optional) ----------
@@ -613,12 +609,18 @@
 
     if (!onFileProtocol()) {
       try {
-        auth0 = await makeClient();
-        if (window.location.search.indexOf('code=') > -1) {
-          await auth0.handleRedirectCallback();
-          window.history.replaceState({}, '', window.location.pathname);
+        // Wait until the Auth0 library has loaded from one of its CDNs.
+        if (window.__auth0SdkReady) await window.__auth0SdkReady;
+        if (typeof createAuth0Client === 'undefined') {
+          auth0Error = 'The Auth0 sign-in library could not be downloaded (all CDNs blocked). Pause any ad-blocker / security extension for localhost and refresh.';
+        } else {
+          auth0 = await makeClient();
+          if (window.location.search.indexOf('code=') > -1) {
+            await auth0.handleRedirectCallback();
+            window.history.replaceState({}, '', window.location.pathname);
+          }
+          user = await auth0.getUser();
         }
-        user = await auth0.getUser();
       } catch (e) {
         auth0Error = (e && (e.message || e.error_description || e.error)) ? (e.message || e.error_description || e.error) : String(e);
         auth0 = null;
