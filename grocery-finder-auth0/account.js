@@ -1,6 +1,8 @@
 /* Grocery Finder — Auth0 account features
    1. One-click Google sign-in (Auth0 Universal Login)
    2. My Stores, 3. Shopping list, 4. Simple price-drop watches
+   5. Extras (all optional): Recipe box, weekly budget, pantry marks,
+      device-to-device sync code.
    Your Auth0 app values are already filled in below. */
 (function () {
   'use strict';
@@ -19,7 +21,7 @@
   var data   = emptyData();
 
   function emptyData() {
-    return { area: null, stores: [], list: [], alerts: [], lastPrices: {}, feed: [] };
+    return { area: null, stores: [], list: [], alerts: [], lastPrices: {}, feed: [], recipes: [], budget: null };
   }
 
   // ---------- tiny helpers ----------
@@ -34,6 +36,8 @@
   function loadData() {
     try { data = JSON.parse(localStorage.getItem(key())) || emptyData(); }
     catch (e) { data = emptyData(); }
+    var base = emptyData();
+    Object.keys(base).forEach(function (k) { if (data[k] == null) data[k] = base[k]; });
     if (!data.feed) data.feed = [];
     if (!data.lastPrices) data.lastPrices = {};
     // Simplified watches: one per category, no price targets.
@@ -41,6 +45,9 @@
       return { category: a.category || String(a.id || '').split(':')[0], createdAt: a.createdAt || new Date().toISOString() };
     }).filter(function (a, i, all) {
       return a.category && !all.slice(0, i).some(function (b) { return b.category === a.category; });
+    });
+    data.list = (data.list || []).map(function (i) {
+      return { name: i.name, checked: !!i.checked, pantry: !!i.pantry, matches: i.matches || matchProducts(i.name).slice(0, 3) };
     });
   }
   function saveData() {
@@ -245,15 +252,20 @@
   }
 
   // ---------- shopping list ----------
-  function addItem() {
+  function addItem(name) {
     var input = $('list-input');
-    var name = input.value.trim().toLowerCase();
-    if (!name) return;
-    if (data.list.some(function (i) { return i.name === name; })) { input.value = ''; return; }
-    data.list.push({ name: name, checked: false, matches: matchProducts(name).slice(0, 3) });
-    input.value = '';
+    var n = (name || input.value).trim().toLowerCase();
+    if (!n) return;
+    if (data.list.some(function (i) { return i.name === n; })) return;
+    data.list.push({ name: n, checked: false, pantry: false, matches: matchProducts(n).slice(0, 3) });
+    if (!name) input.value = '';
     saveData();
     renderList();
+  }
+
+  function togglePantry(item) {
+    item.pantry = !item.pantry;
+    saveData(); renderList();
   }
 
   function renderList() {
@@ -263,7 +275,7 @@
 
     data.list.forEach(function (item) {
       var li = document.createElement('li');
-      li.className = 'store-row' + (item.checked ? ' done' : '');
+      li.className = 'store-row' + (item.checked ? ' done' : '') + (item.pantry ? ' pantry' : '');
 
       var best = item.matches && item.matches.length ? item.matches[0] : null;
       var priceHtml = '';
@@ -271,7 +283,7 @@
         var p = best.product;
         priceHtml = '<span class="price">' + money(p.priceCad) +
           ' <span class="dim">(' + money(p.unitPriceCad) + unitLabel(p.unitPriceBasis) + ')</span></span>';
-        if (!item.checked) { total += p.priceCad; priced++; }
+        if (!item.checked && !item.pantry) { total += p.priceCad; priced++; }
       } else {
         priceHtml = '<span class="dim">not in price file</span>';
       }
@@ -280,11 +292,14 @@
         '<label class="store-main check"><input type="checkbox"' + (item.checked ? ' checked' : '') + '> ' +
         '<span><strong>' + esc(item.name) + '</strong>' + priceHtml +
         (best ? '<span class="dim">' + esc(best.product.name) + '</span>' : '') + '</span></label>' +
-        '<button type="button" class="tiny-danger" aria-label="Remove">✕</button>';
+        '<span class="store-actions">' +
+        '<button type="button" class="tiny-btn pantry-btn' + (item.pantry ? ' on' : '') + '" title="I have this at home">🧺</button>' +
+        '<button type="button" class="tiny-danger" aria-label="Remove">✕</button></span>';
 
       li.querySelector('input[type=checkbox]').addEventListener('change', function (e) {
         item.checked = e.target.checked; saveData(); renderList();
       });
+      li.querySelector('.pantry-btn').addEventListener('click', function () { togglePantry(item); });
       li.querySelector('.tiny-danger').addEventListener('click', function () {
         data.list.splice(data.list.indexOf(item), 1); saveData(); renderList();
       });
@@ -297,11 +312,137 @@
       li.textContent = 'Empty list. Type an ingredient — try butter, eggs or rice.';
       ul.appendChild(li);
       $('list-total').textContent = '';
+      renderBudgetLine(0, 0);
       return;
     }
     $('list-total').textContent = priced
-      ? 'About ' + money(total) + ' at Superstore (' + priced + ' item' + (priced === 1 ? '' : 's') + ' priced, cheapest package each)'
+      ? 'To buy: about ' + money(total) + ' at Superstore (' + priced + ' item' + (priced === 1 ? '' : 's') + ' priced, cheapest package each)'
       : 'Add items to price them';
+    renderBudgetLine(total, priced);
+  }
+
+  // ---------- weekly budget (optional) ----------
+  function renderBudgetLine(total, priced) {
+    var el = $('budget-line');
+    if (!data.budget) { el.hidden = true; return; }
+    var left = data.budget - total;
+    el.hidden = false;
+    el.className = 'drawer-total' + (left < 0 ? ' over' : '');
+    el.textContent = left >= 0
+      ? 'Weekly budget ' + money(data.budget) + ' — ' + money(left) + ' left'
+      : 'Weekly budget ' + money(data.budget) + ' — ' + money(-left) + ' OVER';
+  }
+
+  function setBudget() {
+    var v = $('budget-input').value;
+    data.budget = (v === '' || Number(v) <= 0) ? null : Number(v);
+    saveData();
+    renderList();
+    $('budget-input').value = data.budget == null ? '' : data.budget;
+  }
+
+  // ---------- recipe box ----------
+  function addRecipe() {
+    var name = $('recipe-name').value.trim();
+    var raw = $('recipe-ingredients').value.trim();
+    if (!name || !raw) { flashRecipe('Name and ingredients, please'); return; }
+    var items = raw.split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean);
+    if (!items.length) { flashRecipe('Add at least one ingredient'); return; }
+    if (data.recipes.some(function (r) { return r.name === name; })) { flashRecipe('Recipe already saved'); return; }
+    data.recipes.push({ name: name, items: items, createdAt: new Date().toISOString() });
+    $('recipe-name').value = ''; $('recipe-ingredients').value = '';
+    saveData(); renderRecipes();
+    flashRecipe('Saved "' + name + '" ✓');
+  }
+
+  function flashRecipe(msg) {
+    var btn = $('add-recipe-btn');
+    btn.textContent = msg;
+    setTimeout(function () { btn.textContent = 'Save recipe'; }, 1800);
+  }
+
+  function addRecipeToList(recipe) {
+    var added = 0, skipped = 0;
+    recipe.items.forEach(function (n) {
+      if (data.list.some(function (i) { return i.name === n; })) { skipped++; return; }
+      data.list.push({ name: n, checked: false, pantry: false, matches: matchProducts(n).slice(0, 3) });
+      added++;
+    });
+    saveData(); renderList();
+    // jump to the list so the user sees the result
+    var tab = document.querySelector('.drawer-tab[data-tab="list"]');
+    if (tab) tab.click();
+  }
+
+  function removeRecipe(name) {
+    data.recipes = data.recipes.filter(function (r) { return r.name !== name; });
+    saveData(); renderRecipes();
+  }
+
+  function renderRecipes() {
+    var ul = $('recipes-list');
+    ul.replaceChildren();
+    if (!data.recipes.length) {
+      var li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = 'No recipes yet. Save one above, then add it to your list with one tap.';
+      ul.appendChild(li);
+      return;
+    }
+    data.recipes.forEach(function (r) {
+      var li = document.createElement('li');
+      li.className = 'recipe-row';
+      li.innerHTML =
+        '<span class="store-main"><strong>' + esc(r.name) + '</strong>' +
+        '<span class="dim">' + r.items.length + ' ingredients</span></span>' +
+        '<span class="store-actions">' +
+        '<button type="button" class="ghost-btn add-all-btn">Add to list</button>' +
+        '<button type="button" class="tiny-danger" aria-label="Remove recipe">✕</button></span>';
+      li.querySelector('.add-all-btn').addEventListener('click', function () { addRecipeToList(r); });
+      li.querySelector('.tiny-danger').addEventListener('click', function () { removeRecipe(r.name); });
+      ul.appendChild(li);
+    });
+  }
+
+  // ---------- device-to-device sync code ----------
+  function encodeData() {
+    return btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+  }
+  function decodeSyncCode(code) {
+    var parsed = JSON.parse(decodeURIComponent(escape(atob(code.replace(/\s+/g, '')))));
+    if (!parsed || typeof parsed !== 'object' || !parsed.list) throw new Error('bad code');
+    return parsed;
+  }
+  function copySync() {
+    var btn = $('copy-sync-btn');
+    var code = encodeData();
+    var done = function (ok) {
+      btn.textContent = ok ? 'Copied ✓ — paste it on the other device' : 'Copy failed — select & copy the code below';
+      setTimeout(function () { btn.textContent = 'Copy sync code from this device'; }, 2500);
+      if (!ok) {
+        var inp = $('sync-input');
+        inp.value = code; inp.select && inp.select();
+      }
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(code).then(function () { done(true); }, function () { done(false); });
+    } else done(false);
+  }
+  function pasteSync() {
+    var inp = $('sync-input');
+    try {
+      data = decodeSyncCode(inp.value);
+      var base = emptyData();
+      Object.keys(base).forEach(function (k) { if (data[k] == null) data[k] = base[k]; });
+      saveData();
+      inp.value = '';
+      renderStores(); renderList(); renderAlerts(); renderFeed(); renderBadge(); renderRecipes(); checkAlerts();
+      var tab = document.querySelector('.drawer-tab[data-tab="stores"]');
+      if (tab) tab.click();
+    } catch (e) {
+      inp.value = '';
+      inp.placeholder = 'That code didn\'t work — try again';
+    }
   }
 
   // ---------- price watches (simple: one tap, feed only) ----------
@@ -351,7 +492,6 @@
 
   function checkAlerts() {
     if (!prices || !data.alerts.length) { renderFeed(); return; }
-    var newHits = 0;
     data.alerts.forEach(function (a) {
       var best = cheapestIn(a.category);
       if (!best) return;
@@ -360,10 +500,9 @@
       if (prev != null && cur < prev) {
         data.feed.unshift({
           when: new Date().toISOString(), category: a.category,
-          price: cur, prev: prev, basis: best.unitPriceBasis,
+          price: cur, basis: best.unitPriceBasis,
           item: best.name, kind: 'drop'
         });
-        newHits++;
       }
       data.lastPrices[a.category] = cur;
     });
@@ -410,9 +549,18 @@
   function wire() {
     $('save-stores-btn').addEventListener('click', saveCurrentStores);
     $('search-my-area-btn').addEventListener('click', searchMyArea);
-    $('add-item-btn').addEventListener('click', addItem);
+    $('add-item-btn').addEventListener('click', function () { addItem(); });
     $('list-input').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addItem(); } });
     $('add-alert-btn').addEventListener('click', addAlert);
+
+    // extras
+    $('add-recipe-btn').addEventListener('click', addRecipe);
+    $('recipe-ingredients').addEventListener('keydown', function (e) { if (e.key === 'Enter') addRecipe(); });
+    $('set-budget-btn').addEventListener('click', setBudget);
+    $('budget-input').addEventListener('keydown', function (e) { if (e.key === 'Enter') setBudget(); });
+    $('copy-sync-btn').addEventListener('click', copySync);
+    $('paste-sync-btn').addEventListener('click', pasteSync);
+    $('sync-input').addEventListener('keydown', function (e) { if (e.key === 'Enter') pasteSync(); });
 
     document.querySelectorAll('.drawer-tab').forEach(function (t) {
       t.addEventListener('click', function () { if (t.getAttribute('data-tab') === 'alerts') markFeedSeen(); });
@@ -451,7 +599,7 @@
     loadData();
     wire();
     prices = await loadPrices();
-    renderStores(); renderList(); renderAlerts(); renderFeed(); renderBadge();
+    renderStores(); renderList(); renderAlerts(); renderFeed(); renderBadge(); renderRecipes();
     checkAlerts();  // prices are checked automatically on every visit
   }
 

@@ -124,6 +124,7 @@
       <button type="button" class="drawer-tab active" data-tab="stores">My Stores</button>
       <button type="button" class="drawer-tab" data-tab="list">List</button>
       <button type="button" class="drawer-tab" data-tab="alerts">Alerts <span id="alert-badge" class="badge" hidden>0</span></button>
+      <button type="button" class="drawer-tab" data-tab="extras">Extras</button>
     </nav>
 
     <section id="panel-stores" class="drawer-panel active">
@@ -140,6 +141,8 @@
       <datalist id="ingredients-datalist"></datalist>
       <ul id="shopping-list" class="drawer-list"></ul>
       <p id="list-total" class="drawer-total"></p>
+      <p id="budget-line" class="drawer-total" hidden></p>
+      <p class="drawer-note">Optional: tap 🧺 on anything you already have at home — it stays on the list but drops out of the total.</p>
     </section>
 
     <section id="panel-alerts" class="drawer-panel">
@@ -151,6 +154,29 @@
       <ul id="alerts-list" class="drawer-list"></ul>
       <h3 class="feed-title">Price drops</h3>
       <ul id="alerts-feed" class="drawer-list"></ul>
+    </section>
+
+    <section id="panel-extras" class="drawer-panel">
+      <h4 class="sec-title">Recipe box</h4>
+      <input id="recipe-name" type="text" placeholder="Recipe name, e.g. Pancakes">
+      <input id="recipe-ingredients" type="text" placeholder="Ingredients, comma separated: flour, milk, eggs">
+      <button type="button" id="add-recipe-btn" class="accent-btn wide">Save recipe</button>
+      <ul id="recipes-list" class="drawer-list"></ul>
+
+      <h4 class="sec-title">Weekly budget (optional)</h4>
+      <div class="row">
+        <input id="budget-input" type="number" min="0" step="1" placeholder="$ per week">
+        <button type="button" id="set-budget-btn" class="accent-btn">Set</button>
+      </div>
+      <p class="drawer-note">Set an amount and the List panel shows what's left of it live. Leave empty and press Set to turn it off.</p>
+
+      <h4 class="sec-title">Move to another device</h4>
+      <p class="drawer-note">Copy your saved stores, list, recipes and watches into a code, then load it on your other device.</p>
+      <button type="button" id="copy-sync-btn" class="ghost-btn wide">Copy sync code from this device</button>
+      <div class="row">
+        <input id="sync-input" type="text" placeholder="Paste a sync code here">
+        <button type="button" id="paste-sync-btn" class="accent-btn">Load</button>
+      </div>
     </section>
   </aside>
 
