@@ -1,9 +1,8 @@
-/* Grocery Finder — Auth0 account features
-   1. One-click Google sign-in (Auth0 Universal Login)
-   2. My Stores, 3. Shopping list, 4. Simple price-drop watches
-   5. Extras (all optional): Recipe box, weekly budget, pantry marks,
-      device-to-device sync code.
-   Your Auth0 app values are already filled in below. */
+/* Grocery Finder — Auth0 account features (zero-CDN edition)
+   Sign-in talks to Auth0 directly (PKCE), no external library needed.
+   1. One-click Google sign-in  2. My Stores  3. Shopping list
+   4. Simple price-drop watches  5. Optional extras: recipes, budget,
+      pantry marks, device sync code. */
 (function () {
   'use strict';
 
@@ -14,10 +13,10 @@
 
   var PRICES_URL = 'data/superstore-prices.json';
   var LS_PREFIX  = 'gf-account-';
+  var PROFILE_KEY = 'gf-profile';
 
-  var auth0  = null;
-  var auth0Error = null;
   var user   = null;
+  var auth0Error = null;
   var prices = null;
   var data   = emptyData();
 
@@ -54,20 +53,24 @@
     try { localStorage.setItem(key(), JSON.stringify(data)); } catch (e) {}
   }
 
-  // ---------- Auth0 ----------
-  function makeClient() {
-    return createAuth0Client({
-      domain: AUTH0_DOMAIN,
-      clientId: AUTH0_CLIENT_ID,
-      authorizationParams: { redirect_uri: window.location.origin }
-    });
-  }
-
+  // ---------- sign-in: Auth0 PKCE, no library ----------
   function onFileProtocol() {
     return window.location.protocol === 'file:';
   }
+  function b64url(bytes) {
+    var s = ''; new Uint8Array(bytes).forEach(function (b) { s += String.fromCharCode(b); });
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  async function pkceChallenge(verifier) {
+    var hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+    return b64url(hash);
+  }
 
-  function signIn() {
+  function savedProfile() {
+    try { return JSON.parse(localStorage.getItem(PROFILE_KEY)); } catch (e) { return null; }
+  }
+
+  async function signIn(tryWithoutGoogle) {
     if (onFileProtocol()) {
       alert('Sign-in needs the site served at http://localhost:8000\n\n' +
         'You opened this file by double-clicking (the address starts with File:///).\n' +
@@ -76,30 +79,60 @@
         'and visit http://localhost:8000');
       return;
     }
-    if (!auth0) {
-      alert('Sign-in could not start.\n\nDetails: ' + (auth0Error || 'Auth0 did not load') +
-        '\n\nCommon causes:\n' +
-        '1) The Auth0 Domain in account.js does not match the Domain shown in your app\'s Settings page.\n' +
-        '2) An ad-blocker or security extension is blocking the Auth0 script — try pausing it for localhost.');
-      return;
+    try {
+      var verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
+      sessionStorage.setItem('gf-pkce-verifier', verifier);
+      var url = 'https://' + AUTH0_DOMAIN + '/authorize' +
+        '?response_type=code' +
+        '&client_id=' + encodeURIComponent(AUTH0_CLIENT_ID) +
+        '&redirect_uri=' + encodeURIComponent(window.location.origin) +
+        '&scope=' + encodeURIComponent('openid profile email') +
+        '&code_challenge=' + await pkceChallenge(verifier) +
+        '&code_challenge_method=S256' +
+        '&screen_hint=signup';
+      if (!tryWithoutGoogle) url += '&connection=google-oauth2';
+      window.location.assign(url);   // off to Google / Auth0 we go
+    } catch (e) {
+      alert('Sign-in could not start: ' + (e && e.message ? e.message : e));
     }
-    var google = { connection: 'google-oauth2', screen_hint: 'signup' };
-    auth0.loginWithRedirect({ authorizationParams: google })
-      .catch(function (err) {
-        console.warn('Google login failed, trying normal login:', err);
-        return auth0.loginWithRedirect({
-          authorizationParams: { screen_hint: 'signup', redirect_uri: window.location.origin }
-        });
-      })
-      .catch(function (err) {
-        alert('Sign-in failed to start.\n\nDetails: ' + (err && (err.message || err.error_description || err.error) ? (err.message || err.error_description || err.error) : String(err)) +
-          '\n\nCheck the Allowed Callback/Logout/Web Origins in your Auth0 app contain exactly: http://localhost:8000');
+  }
+
+  async function finishSignIn() {
+    var params = new URLSearchParams(window.location.search);
+    if (!params.has('code')) return false;
+    var verifier = sessionStorage.getItem('gf-pkce-verifier');
+    try {
+      var res = await fetch('https://' + AUTH0_DOMAIN + '/oauth/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          grant_type: 'authorization_code',
+          client_id: AUTH0_CLIENT_ID,
+          code: params.get('code'),
+          redirect_uri: window.location.origin,
+          code_verifier: verifier
+        })
       });
+      var tok = await res.json();
+      if (!tok.id_token) throw new Error(tok.error_description || tok.error || 'token exchange failed');
+      var payload = JSON.parse(atob(tok.id_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+      user = { sub: payload.sub, name: payload.name || payload.nickname || 'friend', email: payload.email };
+      try { localStorage.setItem(PROFILE_KEY, JSON.stringify(user)); } catch (e) {}
+    } catch (e) {
+      auth0Error = (e && e.message) ? e.message : String(e);
+      console.warn('finishSignIn failed:', e);
+    }
+    sessionStorage.removeItem('gf-pkce-verifier');
+    window.history.replaceState({}, '', window.location.pathname);
+    return true;
   }
 
   function signOut() {
-    if (!auth0) return;
-    return auth0.logout({ logoutParams: { returnTo: window.location.origin } });
+    try { localStorage.removeItem(PROFILE_KEY); } catch (e) {}
+    user = null;
+    window.location.assign('https://' + AUTH0_DOMAIN + '/v2/logout' +
+      '?client_id=' + encodeURIComponent(AUTH0_CLIENT_ID) +
+      '&returnTo=' + encodeURIComponent(window.location.origin));
   }
 
   function renderUser() {
@@ -112,14 +145,10 @@
     } else {
       inBox.hidden = true; outBox.hidden = false;
       $('account-open-btn').textContent = 'Sign in';
-      if (note) {
-        if (onFileProtocol()) {
-          note.innerHTML = '<strong>Sign-in needs the server.</strong> Open the folder, type <strong>cmd</strong> in the address bar, run <strong>python -m http.server 8000</strong>, and visit http://localhost:8000.';
-        } else if (!auth0) {
-          note.innerHTML = '<strong>Sign-in couldn\'t connect to Auth0.</strong> ' +
-            (auth0Error || 'The sign-in library did not load.') +
-            '<br><span class="dim">If an ad-blocker is on, allow scripts on localhost and refresh.</span>';
-        }
+      if (note && onFileProtocol()) {
+        note.innerHTML = '<strong>Sign-in needs the server.</strong> Open the folder, type <strong>cmd</strong> in the address bar, run <strong>python -m http.server 8000</strong>, and visit http://localhost:8000.';
+      } else if (note && auth0Error) {
+        note.innerHTML = '<strong>Sign-in had a problem:</strong> ' + esc(auth0Error);
       }
     }
   }
@@ -145,7 +174,7 @@
       });
     });
 
-    $('auth-signin-btn').addEventListener('click', signIn);
+    $('auth-signin-btn').addEventListener('click', function () { signIn(false); });
     $('auth-signout-btn').addEventListener('click', signOut);
   }
 
@@ -609,22 +638,10 @@
 
     if (!onFileProtocol()) {
       try {
-        // Wait until the Auth0 library has loaded from one of its CDNs.
-        if (window.__auth0SdkReady) await window.__auth0SdkReady;
-        if (typeof createAuth0Client === 'undefined') {
-          auth0Error = 'The Auth0 sign-in library could not be downloaded (all CDNs blocked). Pause any ad-blocker / security extension for localhost and refresh.';
-        } else {
-          auth0 = await makeClient();
-          if (window.location.search.indexOf('code=') > -1) {
-            await auth0.handleRedirectCallback();
-            window.history.replaceState({}, '', window.location.pathname);
-          }
-          user = await auth0.getUser();
-        }
+        await finishSignIn();          // handles the ?code=... redirect
+        if (!user) user = savedProfile();
       } catch (e) {
-        auth0Error = (e && (e.message || e.error_description || e.error)) ? (e.message || e.error_description || e.error) : String(e);
-        auth0 = null;
-        console.warn('Auth0 init failed:', e);
+        auth0Error = (e && e.message) ? e.message : String(e);
       }
     }
 

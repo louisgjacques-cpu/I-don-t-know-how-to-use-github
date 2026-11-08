@@ -4,6 +4,7 @@
   Your Auth0 Domain and Client ID are already set inside account.js.
   Just sign in with the button once the site is served from
   http://localhost:8000 (sign-in can't run from a double-clicked file).
+  No external auth library needed — account.js talks to Auth0 directly.
 ============================================================ -->
 <html lang="en-CA">
 <head>
@@ -181,33 +182,6 @@
   </aside>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script>
-    /* Load the Auth0 sign-in library from the first CDN that works.
-       account.js waits for window.__auth0SdkReady before using it. */
-    (function () {
-      var urls = [
-        'https://cdn.auth0.com/js/auth0-spa-js/2/auth0-spa-js.production.js',
-        'https://unpkg.com/@auth0/auth0-spa-js@2/dist/auth0-spa-js.production.js',
-        'https://cdn.jsdelivr.net/npm/@auth0/auth0-spa-js@2/dist/auth0-spa-js.production.js'
-      ];
-      var settled = false;
-      window.__auth0SdkReady = new Promise(function (resolve) {
-        function finish(ok) { if (!settled) { settled = true; resolve(ok); } }
-        function attempt(i) {
-          if (typeof createAuth0Client !== 'undefined') return finish(true);
-          if (i >= urls.length) return finish(false);
-          var s = document.createElement('script');
-          s.src = urls[i];
-          s.onload = function () {
-            if (typeof createAuth0Client !== 'undefined') finish(true); else attempt(i + 1);
-          };
-          s.onerror = function () { attempt(i + 1); };
-          document.head.appendChild(s);
-        }
-        attempt(0);
-      });
-    })();
-  </script>
   <script src="stores.js"></script>
   <script src="app.js"></script>
   <script src="ingredients.js"></script>
