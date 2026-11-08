@@ -1,10 +1,9 @@
 /* Grocery Finder — Auth0 account features (zero-CDN edition)
-   Sign-in talks to Auth0 directly (PKCE), no external library needed.
-   1. One-click Google sign-in  2. My Stores  3. Shopping list
-   4. Simple price-drop watches  5. My Recipes: AI chef (Gemini) +
-      saved recipes + optional budget, pantry marks, device sync code.
-   After sign-in the drawer opens automatically; "Load sample data"
-   fills the account with demo content. */
+   Sign-in: Auth0 PKCE, no external library. Redirect back to the exact
+   page URL, so it works both on http://localhost:8000 and on a real
+   host like https://user.github.io/repo/.
+   Cloud sync: Firestore REST — paste a Firebase config once, data then
+   syncs per signed-in user across devices (last write wins). */
 (function () {
   'use strict';
 
@@ -18,15 +17,19 @@
   var LS_PREFIX  = 'gf-account-';
   var PROFILE_KEY = 'gf-profile';
   var AI_KEY_STORE = 'gf-gemini-key';
+  var CLOUD_STORE = 'gf-firebase-cfg';
+  var RETURN_TO = window.location.origin + window.location.pathname;
 
   var user   = null;
   var auth0Error = null;
   var prices = null;
   var data   = emptyData();
   var aiRecipe = null;
+  var cloud  = null;   // { apiKey, projectId }
+  var pushTimer = null;
 
   function emptyData() {
-    return { area: null, stores: [], list: [], alerts: [], lastPrices: {}, feed: [], recipes: [], budget: null };
+    return { area: null, stores: [], list: [], alerts: [], lastPrices: {}, feed: [], recipes: [], budget: null, updatedAt: 0 };
   }
 
   // ---------- tiny helpers ----------
@@ -43,8 +46,7 @@
     catch (e) { data = emptyData(); }
     var base = emptyData();
     Object.keys(base).forEach(function (k) { if (data[k] == null) data[k] = base[k]; });
-    if (!data.feed) data.feed = [];
-    if (!data.lastPrices) data.lastPrices = {};
+    if (!data.updatedAt) data.updatedAt = 0;
     data.alerts = (data.alerts || []).map(function (a) {
       return { category: a.category || String(a.id || '').split(':')[0], createdAt: a.createdAt || new Date().toISOString() };
     }).filter(function (a, i, all) {
@@ -57,8 +59,15 @@
       return { name: r.name, items: r.items || [], steps: r.steps || [] };
     });
   }
-  function saveData() {
+  function saveData(skipCloud) {
+    data.updatedAt = Date.now();
     try { localStorage.setItem(key(), JSON.stringify(data)); } catch (e) {}
+    if (!skipCloud) scheduleCloudPush();
+  }
+  function renderAll() {
+    renderStores(); renderList(); renderAlerts(); renderFeed(); renderBadge(); renderRecipes();
+    $('budget-input').value = data.budget == null ? '' : data.budget;
+    checkAlerts();
   }
 
   // ---------- sign-in: Auth0 PKCE, no library ----------
@@ -80,11 +89,13 @@
 
   async function signIn(tryWithoutGoogle) {
     if (onFileProtocol()) {
-      alert('Sign-in needs the site served at http://localhost:8000\n\n' +
+      alert('Sign-in needs the site served over http(s).\n\n' +
         'You opened this file by double-clicking (the address starts with File:///).\n' +
-        'Open the folder, type cmd in the address bar, then run:\n' +
-        '  python -m http.server 8000\n' +
-        'and visit http://localhost:8000');
+        'Either:\n' +
+        ' - open the folder, type cmd in the address bar, run:\n' +
+        '     python -m http.server 8000\n' +
+        '   then visit http://localhost:8000\n' +
+        ' - or open the hosted version of the site.');
       return;
     }
     try {
@@ -93,7 +104,7 @@
       var url = 'https://' + AUTH0_DOMAIN + '/authorize' +
         '?response_type=code' +
         '&client_id=' + encodeURIComponent(AUTH0_CLIENT_ID) +
-        '&redirect_uri=' + encodeURIComponent(window.location.origin) +
+        '&redirect_uri=' + encodeURIComponent(RETURN_TO) +
         '&scope=' + encodeURIComponent('openid profile email') +
         '&code_challenge=' + await pkceChallenge(verifier) +
         '&code_challenge_method=S256' +
@@ -117,7 +128,7 @@
           grant_type: 'authorization_code',
           client_id: AUTH0_CLIENT_ID,
           code: params.get('code'),
-          redirect_uri: window.location.origin,
+          redirect_uri: RETURN_TO,
           code_verifier: verifier
         })
       });
@@ -131,7 +142,7 @@
       console.warn('finishSignIn failed:', e);
     }
     sessionStorage.removeItem('gf-pkce-verifier');
-    window.history.replaceState({}, '', window.location.pathname);
+    window.history.replaceState({}, '', RETURN_TO);
     return true;
   }
 
@@ -140,7 +151,7 @@
     user = null;
     window.location.assign('https://' + AUTH0_DOMAIN + '/v2/logout' +
       '?client_id=' + encodeURIComponent(AUTH0_CLIENT_ID) +
-      '&returnTo=' + encodeURIComponent(window.location.origin));
+      '&returnTo=' + encodeURIComponent(RETURN_TO));
   }
 
   function renderUser() {
@@ -154,7 +165,7 @@
       inBox.hidden = true; outBox.hidden = false;
       $('account-open-btn').textContent = 'Sign in';
       if (note && onFileProtocol()) {
-        note.innerHTML = '<strong>Sign-in needs the server.</strong> Open the folder, type <strong>cmd</strong> in the address bar, run <strong>python -m http.server 8000</strong>, and visit http://localhost:8000.';
+        note.innerHTML = '<strong>Sign-in needs the server or the hosted site.</strong> Locally: open the folder, type <strong>cmd</strong> in the address bar, run <strong>python -m http.server 8000</strong>, and visit http://localhost:8000.';
       } else if (note && auth0Error) {
         note.innerHTML = '<strong>Sign-in had a problem:</strong> ' + esc(auth0Error);
       }
@@ -163,7 +174,11 @@
 
   // ---------- drawer ----------
   var drawer = null;
-  function openDrawer()  { drawer.hidden = false; requestAnimationFrame(function () { drawer.classList.add('open'); }); }
+  function openDrawer() {
+    drawer.hidden = false;
+    requestAnimationFrame(function () { drawer.classList.add('open'); });
+    cloudPull(true);   // grab any newer data from the cloud while it opens
+  }
   function closeDrawer() { drawer.classList.remove('open'); setTimeout(function () { drawer.hidden = true; }, 220); }
 
   function wireDrawer() {
@@ -189,6 +204,117 @@
   function switchTab(name) {
     var tab = document.querySelector('.drawer-tab[data-tab="' + name + '"]');
     if (tab) tab.click();
+  }
+
+  // ---------- cloud sync (Firestore REST, no SDK) ----------
+  function cloudStatus(msg) {
+    var el = $('cloud-status');
+    if (el) el.textContent = msg;
+  }
+
+  function parseFirebaseConfig(text) {
+    if (!text) return null;
+    var apiKey = (text.match(/apiKey\"?\s*[:=]\s*\"([^\"]+)\"/) || [])[1];
+    var projectId = (text.match(/projectId\"?\s*[:=]\s*\"([^\"]+)\"/) || [])[1];
+    if (!apiKey || !projectId) return null;
+    return { apiKey: apiKey, projectId: projectId };
+  }
+
+  function cloudConfig() {
+    if (cloud) return cloud;
+    try { cloud = JSON.parse(localStorage.getItem(CLOUD_STORE)); } catch (e) { cloud = null; }
+    return (cloud && cloud.apiKey && cloud.projectId) ? cloud : null;
+  }
+
+  function docUrl() {
+    if (!user || !cloudConfig()) return null;
+    return 'https://firestore.googleapis.com/v1/projects/' + cloud.projectId +
+      '/databases/(default)/documents/gfUsers/' + encodeURIComponent(user.sub);
+  }
+
+  function scheduleCloudPush() {
+    if (!user || !cloudConfig()) return;
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(cloudPush, 1500);   // debounce rapid edits
+  }
+
+  async function cloudPush() {
+    var url = docUrl();
+    if (!url) return;
+    try {
+      var res = await fetch(url + '?key=' + encodeURIComponent(cloud.apiKey) + '&currentDocument.exists=true', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fields: {
+            blob:      { stringValue: JSON.stringify(data) },
+            updatedAt: { doubleValue: data.updatedAt },
+            email:     { stringValue: user.email || '' }
+          }
+        })
+      });
+      if (!res.ok) {
+        var err = await res.json().catch(function () { return {}; });
+        cloudStatus('Cloud sync: problem saving — ' + ((err.error && err.error.message) || res.status).slice(0, 60));
+        console.warn('cloudPush failed', err);
+        return;
+      }
+      cloudStatus('Cloud sync: on ✓ saved ' + new Date().toLocaleTimeString());
+    } catch (e) {
+      cloudStatus('Cloud sync: offline — will retry on next change');
+    }
+  }
+
+  async function cloudPull(quiet) {
+    var url = docUrl();
+    if (!url) return;
+    try {
+      var res = await fetch(url + '?key=' + encodeURIComponent(cloud.apiKey));
+      if (res.status === 404) { if (!quiet) cloudPush(); return; }   // nothing in the cloud yet
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var doc = await res.json();
+      var remoteTs = (doc.fields && doc.fields.updatedAt && Number(doc.fields.updatedAt.doubleValue)) || 0;
+      var blob = doc.fields && doc.fields.blob && doc.fields.blob.stringValue;
+      if (!blob) return;
+      if (remoteTs <= (data.updatedAt || 0)) return;   // local is newer or equal
+      var remote = JSON.parse(blob);
+      var base = emptyData();
+      Object.keys(base).forEach(function (k) { if (remote[k] == null) remote[k] = base[k]; });
+      remote.updatedAt = remoteTs;
+      data = remote;
+      try { localStorage.setItem(key(), JSON.stringify(data)); } catch (e) {}
+      renderAll();
+      cloudStatus('Cloud sync: on ✓ loaded ' + new Date(remoteTs).toLocaleTimeString());
+    } catch (e) {
+      if (!quiet) cloudStatus('Cloud sync: problem loading — ' + (e && e.message ? e.message : e));
+      console.warn('cloudPull failed', e);
+    }
+  }
+
+  function connectCloud() {
+    var cfg = parseFirebaseConfig($('cloud-input').value);
+    if (!cfg) {
+      cloudStatus('That didn\'t look like a Firebase config — it needs apiKey and projectId');
+      return;
+    }
+    cloud = cfg;
+    try { localStorage.setItem(CLOUD_STORE, JSON.stringify(cfg)); } catch (e) {}
+    $('cloud-input').hidden = true;
+    $('cloud-connect-btn').hidden = true;
+    cloudStatus('Cloud sync: connecting…');
+    cloudPush();
+  }
+
+  function renderCloudUi() {
+    var input = $('cloud-input'), btn = $('cloud-connect-btn');
+    if (cloudConfig()) {
+      input.hidden = true; btn.hidden = true;
+      cloudStatus(user ? 'Cloud sync: on ✓' : 'Cloud sync: on — sign in to start syncing');
+    } else {
+      input.hidden = false; btn.hidden = false;
+      cloudStatus('Cloud sync: not set up — your data lives only in this browser. Paste a Firebase config below to sync across devices.');
+    }
+    try { var saved = localStorage.getItem(CLOUD_STORE); } catch (e) { var saved = null; }
   }
 
   // ---------- sample data (for testing) ----------
@@ -239,8 +365,7 @@
     if (!data.budget) data.budget = 60;
 
     saveData();
-    renderStores(); renderList(); renderAlerts(); renderFeed(); renderBadge(); renderRecipes(); checkAlerts();
-    $('budget-input').value = data.budget == null ? '' : data.budget;
+    renderAll();
     switchTab('stores');
 
     btn.textContent = added.length
@@ -557,10 +682,9 @@
 
   function aiAddToList() {
     if (!aiRecipe) return;
-    var added = 0;
     aiRecipe.items.forEach(function (raw) {
       var core = raw.replace(/^\s*[\d½¼¾\/\.]+\s*\w*\s*/, '').trim();
-      if (addItem(core || raw)) added++;
+      addItem(core || raw);
     });
     switchTab('list');
   }
@@ -594,10 +718,9 @@
   }
 
   function addRecipeToList(recipe) {
-    var added = 0;
     recipe.items.forEach(function (raw) {
       var core = raw.replace(/^\s*[\d½¼¾\/\.]+\s*\w*\s*/, '').trim();
-      if (addItem(core || raw)) added++;
+      addItem(core || raw);
     });
     saveData(); renderList();
     switchTab('list');
@@ -644,7 +767,7 @@
     });
   }
 
-  // ---------- device-to-device sync code ----------
+  // ---------- device-to-device sync code (works without cloud) ----------
   function encodeData() {
     return btoa(unescape(encodeURIComponent(JSON.stringify(data))));
   }
@@ -676,7 +799,7 @@
       Object.keys(base).forEach(function (k) { if (data[k] == null) data[k] = base[k]; });
       saveData();
       inp.value = '';
-      renderStores(); renderList(); renderAlerts(); renderFeed(); renderBadge(); renderRecipes(); checkAlerts();
+      renderAll();
       switchTab('stores');
     } catch (e) {
       inp.value = '';
@@ -746,7 +869,7 @@
       data.lastPrices[a.category] = cur;
     });
     data.feed = data.feed.slice(0, 30);
-    saveData();
+    saveData(true);
     renderAlerts(); renderFeed();
     renderBadge();
   }
@@ -781,7 +904,8 @@
   }
   function markFeedSeen() {
     data.feed.forEach(function (f) { f.seen = true; });
-    saveData(); renderBadge();
+    saveData(true);
+    renderBadge();
   }
 
   // ---------- wiring ----------
@@ -793,6 +917,8 @@
     $('add-alert-btn').addEventListener('click', addAlert);
 
     $('demo-data-btn').addEventListener('click', loadDemo);
+
+    $('cloud-connect-btn').addEventListener('click', connectCloud);
 
     $('ai-generate-btn').addEventListener('click', aiGenerate);
     $('ai-desc').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); aiGenerate(); } });
@@ -841,10 +967,11 @@
     renderUser();
     loadData();
     wire();
+    renderCloudUi();
     prices = await loadPrices();
-    renderStores(); renderList(); renderAlerts(); renderFeed(); renderBadge(); renderRecipes();
-    checkAlerts();
+    renderAll();
 
+    if (user && cloudConfig()) await cloudPull(true);
     if (justSignedIn) openDrawer();
   }
 

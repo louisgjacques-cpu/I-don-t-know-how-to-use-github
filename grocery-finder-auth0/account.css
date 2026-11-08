@@ -32,9 +32,15 @@
 .drawer-head { display: flex; justify-content: space-between; align-items: center; }
 .drawer-title { font-family: 'Young Serif', serif; font-size: 1.2rem; color: var(--gf-ink); }
 
-#user-box {
+#user-box, #cloud-box {
   background: var(--gf-amber-soft); border-radius: 12px; padding: 12px;
   display: flex; flex-direction: column; gap: 8px;
+}
+#cloud-box { background: transparent; border: 1px dashed var(--gf-border); padding: 10px 12px; }
+#cloud-input {
+  font: inherit; font-size: .78rem; padding: 8px; width: 100%;
+  border: 1px solid var(--gf-border); border-radius: 10px; background: var(--gf-paper);
+  resize: vertical; font-family: inherit; color: var(--gf-ink);
 }
 .user-chip { font-size: .95rem; line-height: 1.4; }
 .drawer-note { font-size: .82rem; color: #555; line-height: 1.45; margin: 0; }
@@ -144,7 +150,7 @@ label.check > span { display: flex; flex-direction: column; gap: 2px; min-width:
 [data-theme="dark"] #account-drawer { background: var(--paper); border-left-color: var(--border); }
 [data-theme="dark"] .drawer-title { color: var(--ink); }
 [data-theme="dark"] .drawer-list li { background: var(--bg); }
-[data-theme="dark"] .row input, [data-theme="dark"] .row select,
+[data-theme="dark"] #cloud-input, [data-theme="dark"] .row input, [data-theme="dark"] .row select,
 [data-theme="dark"] .drawer-panel > input, [data-theme="dark"] .drawer-panel > textarea,
 [data-theme="dark"] .ai-result { background: var(--bg); color: var(--ink); }
 [data-theme="dark"] .drawer-note, [data-theme="dark"] .sec-title { color: var(--dim); }

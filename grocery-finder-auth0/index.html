@@ -1,11 +1,9 @@
 <!DOCTYPE html>
 <!-- ============================================================
   Grocery Finder — with Auth0 account features (drop-in version)
-  Your Auth0 Domain and Client ID are already set inside account.js.
-  Sign-in works when served from http://localhost:8000.
-  My Recipes tab: AI generates recipes from a description (Gemini).
-  After sign-in the drawer opens automatically; a sample-data button
-  fills the account with demo content for testing.
+  Auth0 Domain and Client ID are set inside account.js.
+  Works on http://localhost:8000 AND on a real host (GitHub Pages).
+  My Recipes: AI chef (Gemini). Cloud sync: paste a Firebase config.
 ============================================================ -->
 <html lang="en-CA">
 <head>
@@ -125,6 +123,12 @@
       </div>
     </div>
 
+    <div id="cloud-box">
+      <p id="cloud-status" class="drawer-note">Cloud sync: not set up.</p>
+      <textarea id="cloud-input" rows="3" hidden placeholder="Paste your Firebase config here (the whole firebaseConfig block)"></textarea>
+      <button type="button" id="cloud-connect-btn" class="ghost-btn wide" hidden>Connect cloud sync</button>
+    </div>
+
     <nav class="drawer-tabs" aria-label="Account sections">
       <button type="button" class="drawer-tab active" data-tab="stores">My Stores</button>
       <button type="button" class="drawer-tab" data-tab="list">List</button>
@@ -194,7 +198,7 @@
       </div>
       <p class="drawer-note">Set an amount and the List panel shows what's left of it live. Leave empty and press Set to turn it off.</p>
 
-      <h4 class="sec-title">Move to another device</h4>
+      <h4 class="sec-title">Move to another device (no cloud needed)</h4>
       <p class="drawer-note">Copy your saved stores, list, recipes and watches into a code, then load it on your other device.</p>
       <button type="button" id="copy-sync-btn" class="ghost-btn wide">Copy sync code from this device</button>
       <div class="row">
