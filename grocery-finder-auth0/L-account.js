@@ -2,11 +2,11 @@
    Sign-in: Auth0 PKCE, no external library. Works on localhost and a
    real host (redirect back to the exact page URL).
    Features: My Stores, shopping list (prices across retailers, pantry),
-   price watches with target prices, trip history + budget streak,
-   meal plan week, AI chef (Gemini) incl. "cook something cheap",
-   "cook from my pantry" and pantry photo recognition (Gemini vision),
-   basket price comparison between retailers, saved recipes,
-   device sync code, and cloud sync (Firestore REST, paste config once). */
+   price-drop watches, trip history + budget streak, meal plan week,
+   AI chef (Gemini) incl. "cook something cheap", "cook from my pantry"
+   and pantry photo recognition (Gemini vision), basket price comparison
+   between retailers, saved recipes, device sync code, and cloud sync
+   (Firestore REST, paste config once). */
 (function () {
   'use strict';
 
@@ -51,13 +51,9 @@
     var base = emptyData();
     Object.keys(base).forEach(function (k) { if (data[k] == null) data[k] = base[k]; });
     if (!data.updatedAt) data.updatedAt = 0;
+    // migrate old per-user data: price targets were removed, drop them quietly
     data.alerts = (data.alerts || []).map(function (a) {
-      return {
-        category: a.category || String(a.id || '').split(':')[0],
-        target: (typeof a.target === 'number') ? a.target : null,
-        targetHit: !!a.targetHit,
-        createdAt: a.createdAt || new Date().toISOString()
-      };
+      return { category: a.category || String(a.id || '').split(':')[0], createdAt: a.createdAt || new Date().toISOString() };
     }).filter(function (a, i, all) {
       return a.category && !all.slice(0, i).some(function (b) { return b.category === a.category; });
     });
@@ -225,8 +221,8 @@
 
   function parseFirebaseConfig(text) {
     if (!text) return null;
-    var apiKey = (text.match(/apiKey\"?\s*[:=]\s*\"([^\"]+)\"/) || [])[1];
-    var projectId = (text.match(/projectId\"?\s*[:=]\s*\"([^\"]+)\"/) || [])[1];
+    var apiKey = (text.match(/apiKey\"?\s*[:=]\s*\"([^"]+)\"/) || [])[1];
+    var projectId = (text.match(/projectId\"?\s*[:=]\s*\"([^"]+)\"/) || [])[1];
     if (!apiKey || !projectId) return null;
     return { apiKey: apiKey, projectId: projectId };
   }
@@ -372,8 +368,8 @@
     }
 
     if (!data.alerts.some(function (a) { return a.category === 'eggs'; })) {
-      data.alerts.push({ category: 'eggs', target: 0.30, targetHit: false, createdAt: new Date().toISOString() });
-      added.push('eggs watch (target $0.30/egg)');
+      data.alerts.push({ category: 'eggs', createdAt: new Date().toISOString() });
+      added.push('eggs watch');
     }
 
     if (!data.trips.length) {
@@ -512,7 +508,8 @@
 
   // alerts + "cook cheap" are anchored to the primary retailer (superstore)
   function primaryCategories() {
-    return Object.keys(productsIn('superstore', null) && (prices.retailers.superstore.categories || {}));
+    if (!prices || !prices.retailers || !prices.retailers.superstore) return [];
+    return Object.keys(prices.retailers.superstore.categories || {});
   }
 
   function cheapestIn(category) {
@@ -801,7 +798,7 @@
       var r = data.recipes.find(function (x) { return x.name === name; });
       if (!r) return;
       r.items.forEach(function (raw) {
-        var core = raw.replace(/^\s*[\d½¼¾\/\.]+\s*\w*\s*/, '').trim();
+        var core = raw.replace(/^\s*[\d½¼¾\/\.]\+?\s*\w*\s*/, '').trim();
         addItem(core || raw);
       });
     });
@@ -969,7 +966,7 @@
   function aiAddToList() {
     if (!aiRecipe) return;
     aiRecipe.items.forEach(function (raw) {
-      var core = raw.replace(/^\s*[\d½¼¾\/\.]+\s*\w*\s*/, '').trim();
+      var core = raw.replace(/^\s*[\d½¼¾\/\.]\+?\s*\w*\s*/, '').trim();
       addItem(core || raw);
     });
     switchTab('list');
@@ -1005,7 +1002,7 @@
 
   function addRecipeToList(recipe) {
     recipe.items.forEach(function (raw) {
-      var core = raw.replace(/^\s*[\d½¼¾\/\.]+\s*\w*\s*/, '').trim();
+      var core = raw.replace(/^\s*[\d½¼¾\/\.]\+?\s*\w*\s*/, '').trim();
       addItem(core || raw);
     });
     saveData(); renderList();
@@ -1094,19 +1091,12 @@
     }
   }
 
-  // ---------- price watches ----------
+  // ---------- price watches (simple drop alerts) ----------
   function addAlert() {
     var cat = $('alert-category').value;
     if (!cat) return;
     if (data.alerts.some(function (a) { return a.category === cat; })) return;
-    var t = parseFloat($('alert-target').value);
-    data.alerts.push({
-      category: cat,
-      target: (isFinite(t) && t > 0) ? t : null,
-      targetHit: false,
-      createdAt: new Date().toISOString()
-    });
-    $('alert-target').value = '';
+    data.alerts.push({ category: cat, createdAt: new Date().toISOString() });
     saveData();
     renderAlerts();
     checkAlerts();
@@ -1123,7 +1113,7 @@
     if (!data.alerts.length) {
       var li = document.createElement('li');
       li.className = 'empty';
-      li.textContent = 'Nothing watched yet. Pick a category, optionally set a target price, tap Watch.';
+      li.textContent = 'Nothing watched yet. Pick a category and tap Watch.';
       ul.appendChild(li);
       return;
     }
@@ -1132,10 +1122,6 @@
       li.className = 'store-row';
       var now = data.lastPrices[a.category];
       var sub = 'watching';
-      if (a.target != null) {
-        sub += ' · target ' + money(a.target) + unitLabel(currentBasis(a.category));
-        if (a.targetHit) sub += ' ✓ hit';
-      }
       if (now != null) sub += ' · now ' + money(now) + unitLabel(currentBasis(a.category));
       li.innerHTML =
         '<span class="store-main"><strong>' + esc(a.category) + '</strong>' +
@@ -1160,14 +1146,6 @@
           item: best.name, kind: 'drop'
         });
       }
-      if (a.target != null && !a.targetHit && cur <= a.target) {
-        a.targetHit = true;
-        data.feed.unshift({
-          when: new Date().toISOString(), category: a.category,
-          price: cur, basis: best.unitPriceBasis,
-          item: best.name, kind: 'target'
-        });
-      }
       data.lastPrices[a.category] = cur;
     });
     data.feed = data.feed.slice(0, 30);
@@ -1188,11 +1166,8 @@
     }
     data.feed.forEach(function (f) {
       var li = document.createElement('li');
-      li.className = 'feed-row drop' + (f.kind === 'target' ? ' target' : '');
-      var lead = f.kind === 'target'
-        ? '<strong>' + esc(f.category) + '</strong> hit your target: ' + money(f.price)
-        : '<strong>' + esc(f.category) + '</strong> dropped to ' + money(f.price);
-      li.innerHTML = lead +
+      li.className = 'feed-row drop';
+      li.innerHTML = '<strong>' + esc(f.category) + '</strong> dropped to ' + money(f.price) +
         ' <span class="dim">(' + (f.basis === 'per 100 g' ? 'per 100 g' : 'per egg') +
         ') · ' + esc(f.item) + ' · ' +
         new Date(f.when).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' }) + '</span>';
@@ -1222,7 +1197,6 @@
     $('finish-trip-btn').addEventListener('click', finishTrip);
     $('add-week-btn').addEventListener('click', addWeekToList);
     $('add-alert-btn').addEventListener('click', addAlert);
-    $('alert-target').addEventListener('keydown', function (e) { if (e.key === 'Enter') addAlert(); });
 
     $('demo-data-btn').addEventListener('click', loadDemo);
 

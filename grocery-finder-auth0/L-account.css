@@ -127,6 +127,7 @@ label.check > span { display: flex; flex-direction: column; gap: 2px; min-width:
   font-size: .85rem; font-weight: 600; color: var(--gf-amber);
   background: var(--gf-amber-soft); border-radius: 10px; padding: 8px 12px; margin: 0;
 }
+.drawer-total.compare { font-weight: 500; }
 #budget-line.over { background: #fdeaea; color: #a11; }
 
 /* Week tab: meal plan + trips + streak */
@@ -137,9 +138,6 @@ label.check > span { display: flex; flex-direction: column; gap: 2px; min-width:
   color: var(--gf-ink);
 }
 .drawer-note.streak { color: var(--gf-amber); font-weight: 600; }
-.feed-row.target { border-left: 4px solid #2e7d32; }
-.feed-row.target strong { color: #2e7d32; }
-.feed-row .dim { display: block; }
 
 /* AI chef result */
 .ai-result {
