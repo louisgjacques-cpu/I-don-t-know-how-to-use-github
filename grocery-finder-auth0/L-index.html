@@ -2,7 +2,8 @@
 <!-- ============================================================
   L-index.html — Grocery Finder entry page (L = Louis / account kit)
   Mixed file: original store-search site + the L-labeled account kit
-  (sign-in drawer, list, alerts, AI recipes, cloud sync).
+  (sign-in drawer, list, alerts, AI recipes, meal plan, trip history,
+  cloud sync).
   Auth0 Domain and Client ID are set inside L-account.js.
 ============================================================ -->
 <html lang="en-CA">
@@ -130,10 +131,11 @@
     </div>
 
     <nav class="drawer-tabs" aria-label="Account sections">
-      <button type="button" class="drawer-tab active" data-tab="stores">My Stores</button>
+      <button type="button" class="drawer-tab active" data-tab="stores">Stores</button>
       <button type="button" class="drawer-tab" data-tab="list">List</button>
+      <button type="button" class="drawer-tab" data-tab="week">Week</button>
       <button type="button" class="drawer-tab" data-tab="alerts">Alerts <span id="alert-badge" class="badge" hidden>0</span></button>
-      <button type="button" class="drawer-tab" data-tab="extras">My Recipes</button>
+      <button type="button" class="drawer-tab" data-tab="extras">Recipes</button>
     </nav>
 
     <section id="panel-stores" class="drawer-panel active">
@@ -151,7 +153,18 @@
       <ul id="shopping-list" class="drawer-list"></ul>
       <p id="list-total" class="drawer-total"></p>
       <p id="budget-line" class="drawer-total" hidden></p>
-      <p class="drawer-note">Optional: tap 🧺 on anything you already have at home — it stays on the list but drops out of the total.</p>
+      <button type="button" id="finish-trip-btn" class="ghost-btn wide">✅ Finish trip — archive the checked items</button>
+      <p class="drawer-note">Check items off as you shop, then Finish trip: they're archived with the total (see the Week tab) and removed from the list.</p>
+    </section>
+
+    <section id="panel-week" class="drawer-panel">
+      <p id="week-stats" class="drawer-note">No trips yet — finish a shopping trip from the List tab.</p>
+      <h4 class="sec-title">Meal plan</h4>
+      <p class="drawer-note">Pick a saved recipe for each day, then add the whole week's ingredients to your list in one tap.</p>
+      <div id="plan-list" class="plan-list"></div>
+      <button type="button" id="add-week-btn" class="accent-btn wide">Add whole week to list</button>
+      <h4 class="sec-title">Recent trips</h4>
+      <ul id="trips-list" class="drawer-list"></ul>
     </section>
 
     <section id="panel-alerts" class="drawer-panel">
@@ -159,7 +172,8 @@
         <select id="alert-category" aria-label="What to watch"></select>
         <button type="button" id="add-alert-btn" class="accent-btn">Watch</button>
       </div>
-      <p class="drawer-note">Tap Watch. You'll see a feed entry here whenever the cheapest price for that category drops.</p>
+      <input id="alert-target" type="number" step="0.01" min="0" placeholder="Optional target price, e.g. 0.30">
+      <p class="drawer-note">Watch a category. Add a target price and you'll get a feed entry the moment the cheapest unit price drops to it (per 100g, or per egg for eggs).</p>
       <ul id="alerts-list" class="drawer-list"></ul>
       <h3 class="feed-title">Price drops</h3>
       <ul id="alerts-feed" class="drawer-list"></ul>
@@ -170,7 +184,8 @@
       <input id="ai-key" type="password" placeholder="Gemini API key (saved on this device)">
       <textarea id="ai-desc" rows="2" placeholder="Describe a recipe — e.g. easy pancakes, no milk"></textarea>
       <button type="button" id="ai-generate-btn" class="accent-btn wide">Make the recipe</button>
-      <p class="drawer-note">Free key: <strong>aistudio.google.com/apikey</strong> → Create API key. Paste it once — it stays on this device. Then just describe what you feel like eating.</p>
+      <button type="button" id="ai-cheap-btn" class="ghost-btn wide">Cook something cheap ✨</button>
+      <p class="drawer-note">Free key: <strong>aistudio.google.com/apikey</strong> → Create API key. Paste it once — it stays on this device. “Cook something cheap” builds a recipe around whatever costs the least this week.</p>
       <div id="ai-result" class="ai-result" hidden>
         <p class="ai-name"><strong id="ai-name"></strong></p>
         <p class="dim">Ingredients</p>
@@ -196,7 +211,7 @@
         <input id="budget-input" type="number" min="0" step="1" placeholder="$ per week">
         <button type="button" id="set-budget-btn" class="accent-btn">Set</button>
       </div>
-      <p class="drawer-note">Set an amount and the List panel shows what's left of it live. Leave empty and press Set to turn it off.</p>
+      <p class="drawer-note">Set an amount and the List panel shows what's left of it live. The Week tab tracks your streak of trips under budget. Leave empty and press Set to turn it off.</p>
 
       <h4 class="sec-title">Move to another device (no cloud needed)</h4>
       <p class="drawer-note">Copy your saved stores, list, recipes and watches into a code, then load it on your other device.</p>
