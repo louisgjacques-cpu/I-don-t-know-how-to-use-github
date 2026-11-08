@@ -12,7 +12,7 @@
 
 
   var GEMINI_MODEL = 'gemini-2.0-flash';
-  var PRICES_URL = 'data/superstore-prices.json';
+  var PRICES_URL = 'data/LO-superstore-prices.json';
   var LS_PREFIX  = 'gf-account-';
   var AI_KEY_STORE = 'gf-gemini-key';
   var DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -58,7 +58,7 @@
     if (!data.plan) data.plan = {};
   }
   function saveData(skipCloud) {
-    data.updatedAt = Date.now();
+    if (!skipCloud) data.updatedAt = Date.now();   // local-only tweaks don't count as newer
     try { localStorage.setItem(key(), JSON.stringify(data)); } catch (e) {}
     if (!skipCloud) scheduleCloudPush();
   }
@@ -132,10 +132,13 @@
     loadData();
     if (user) {
       // first sign-in on this device: keep what they made as a guest
-      if (wasGuest && isEmptyData(data) && !isEmptyData(guestData)) {
-        data = guestData; saveData(true);
-      }
+      // Load the account's saved data first. Only if the account is still
+      // empty do we keep what they made as a guest (never overwrite saved data).
+      var adoptGuest = wasGuest && isEmptyData(data) && !isEmptyData(guestData);
       await cloudPull(true);
+      if (adoptGuest && isEmptyData(data)) {
+        data = guestData; saveData();
+      }
     }
     renderUser(); renderAll(); renderCloudUi();
     if (user) $('lo-password').value = '';
