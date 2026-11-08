@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <!-- ============================================================
   Grocery Finder — with Auth0 account features (drop-in version)
-  Copy this file, account.css, account.js, ingredients.js and
-  data/superstore-prices.json into your repo root, next to your
-  existing app.js / stores.js / style.css. Changes marked "NEW".
+  Your Auth0 Domain and Client ID are already set inside account.js.
+  Just sign in with the button once the site is served from
+  http://localhost:8000 (sign-in can't run from a double-clicked file).
 ============================================================ -->
 <html lang="en-CA">
 <head>
@@ -15,13 +15,13 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Young+Serif&display=swap">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="account.css"> <!-- NEW: account drawer styles -->
+  <link rel="stylesheet" href="account.css">
 </head>
 <body>
   <header class="topbar">
     <span class="wordmark"><span class="stamp" aria-hidden="true">GF</span>Grocery Finder</span>
-    <span class="topbar-actions"> <!-- NEW -->
-      <button type="button" id="account-open-btn" class="theme-btn" aria-haspopup="dialog">Sign in</button> <!-- NEW -->
+    <span class="topbar-actions">
+      <button type="button" id="account-open-btn" class="theme-btn" aria-haspopup="dialog">Sign in</button>
       <button type="button" id="theme-btn" class="theme-btn" aria-label="Switch colour theme">Dark</button>
     </span>
   </header>
@@ -103,7 +103,6 @@
     Store locations from OpenStreetMap. A store can be missing if nobody has mapped it yet.
   </footer>
 
-  <!-- NEW: the account drawer (sign in / My Stores / Shopping list / Price alerts) -->
   <aside id="account-drawer" hidden role="dialog" aria-label="Your account">
     <div class="drawer-head">
       <span class="drawer-title">Your account</span>
@@ -146,23 +145,21 @@
     <section id="panel-alerts" class="drawer-panel">
       <div class="row">
         <select id="alert-category" aria-label="What to watch"></select>
-        <input id="alert-target" type="number" step="0.01" min="0" placeholder="Target $" aria-label="Target unit price (optional)">
         <button type="button" id="add-alert-btn" class="accent-btn">Watch</button>
       </div>
-      <p class="drawer-note">Leave target empty to hear about any price drop. Compared against the saved Superstore price file.</p>
+      <p class="drawer-note">Tap Watch. You'll see a feed entry here whenever the cheapest price for that category drops.</p>
       <ul id="alerts-list" class="drawer-list"></ul>
-      <button type="button" id="check-alerts-btn" class="ghost-btn wide">Check prices now</button>
-      <h3 class="feed-title">Recent drops</h3>
+      <h3 class="feed-title">Price drops</h3>
       <ul id="alerts-feed" class="drawer-list"></ul>
     </section>
   </aside>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://cdn.auth0.com/js/auth0-spa-js/2/auth0-spa-js.production.js"></script> <!-- NEW -->
+  <script src="https://cdn.auth0.com/js/auth0-spa-js/2/auth0-spa-js.production.js"></script>
   <script src="stores.js"></script>
   <script src="app.js"></script>
-  <script src="ingredients.js"></script> <!-- NEW -->
-  <script src="data/prices-data.js"></script> <!-- NEW: bundled prices so file:// works -->
-  <script src="account.js"></script>      <!-- NEW -->
+  <script src="ingredients.js"></script>
+  <script src="data/prices-data.js"></script>
+  <script src="account.js"></script>
 </body>
 </html>

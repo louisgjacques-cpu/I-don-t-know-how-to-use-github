@@ -1,14 +1,14 @@
 /* Grocery Finder — Auth0 account features
    1. One-click Google sign-in (Auth0 Universal Login)
-   2. My Stores, 3. Shopping list, 4. Price-drop alerts
-   SETUP: fill in the two constants below. See README. */
+   2. My Stores, 3. Shopping list, 4. Simple price-drop watches
+   Your Auth0 app values are already filled in below. */
 (function () {
   'use strict';
 
-  // ================= EDIT THESE =================
-  var AUTH0_DOMAIN    = 'YOUR_AUTH0_DOMAIN';   // e.g. dev-abc12345.us.auth0.com
-  var AUTH0_CLIENT_ID = 'YOUR_CLIENT_ID';
-  // ==============================================
+  // ================= YOUR AUTH0 APP (already set) =================
+  var AUTH0_DOMAIN    = 'dev-feoavgdll2d4ur2a.us.auth0.com';
+  var AUTH0_CLIENT_ID = 'tXaIv6bVltFZaBbc8FWPf8rqx0Iuwan4';
+  // ================================================================
 
   var PRICES_URL = 'data/superstore-prices.json';
   var LS_PREFIX  = 'gf-account-';
@@ -35,6 +35,13 @@
     try { data = JSON.parse(localStorage.getItem(key())) || emptyData(); }
     catch (e) { data = emptyData(); }
     if (!data.feed) data.feed = [];
+    if (!data.lastPrices) data.lastPrices = {};
+    // Simplified watches: one per category, no price targets.
+    data.alerts = (data.alerts || []).map(function (a) {
+      return { category: a.category || String(a.id || '').split(':')[0], createdAt: a.createdAt || new Date().toISOString() };
+    }).filter(function (a, i, all) {
+      return a.category && !all.slice(0, i).some(function (b) { return b.category === a.category; });
+    });
   }
   function saveData() {
     try { localStorage.setItem(key(), JSON.stringify(data)); } catch (e) {}
@@ -104,8 +111,6 @@
   }
 
   // ---------- My Stores ----------
-  // Reads the pins your app.js just drew (window.storePins / window.lastSearch
-  // are plain top-level vars in app.js, so they're global).
   function saveCurrentStores() {
     var pins = (window.storePins || []).filter(function (p) { return p && p.store; });
     if (!pins.length) { $('save-stores-btn').textContent = 'Search for stores first'; return; }
@@ -181,7 +186,6 @@
     closeDrawer();
     var form = $('search-form'), input = $('place');
     if (!form || !input || !data.area) return;
-    // Restore the mode (postal vs address) the area was saved with.
     var isAddress = data.area.mode === 'address';
     var modeRadios = document.querySelectorAll('input[name="mode"]');
     modeRadios.forEach(function (r) {
@@ -218,6 +222,10 @@
     var prods = productsIn(category);
     if (!prods.length) return null;
     return prods.reduce(function (a, b) { return (b.unitPriceCad < a.unitPriceCad) ? b : a; });
+  }
+
+  function unitLabel(basis) {
+    return basis === 'per 100 g' ? '/100g' : '/egg';
   }
 
   // Match a shopping-list item to products by shared words.
@@ -262,8 +270,7 @@
       if (best) {
         var p = best.product;
         priceHtml = '<span class="price">' + money(p.priceCad) +
-          ' <span class="dim">(' + (p.unitPriceBasis === 'per 100 g'
-            ? money(p.unitPriceCad) + '/100g' : money(p.unitPriceCad) + '/egg') + ')</span></span>';
+          ' <span class="dim">(' + money(p.unitPriceCad) + unitLabel(p.unitPriceBasis) + ')</span></span>';
         if (!item.checked) { total += p.priceCad; priced++; }
       } else {
         priceHtml = '<span class="dim">not in price file</span>';
@@ -297,23 +304,19 @@
       : 'Add items to price them';
   }
 
-  // ---------- price alerts ----------
+  // ---------- price watches (simple: one tap, feed only) ----------
   function addAlert() {
     var cat = $('alert-category').value;
     if (!cat) return;
-    var targetRaw = $('alert-target').value;
-    var target = targetRaw === '' ? null : Number(targetRaw);
-    var id = cat + (target != null ? ':' + target : '');
-    if (data.alerts.some(function (a) { return a.id === id; })) return;
-    data.alerts.push({ id: id, category: cat, target: target, createdAt: new Date().toISOString() });
-    $('alert-target').value = '';
+    if (data.alerts.some(function (a) { return a.category === cat; })) return;
+    data.alerts.push({ category: cat, createdAt: new Date().toISOString() });
     saveData();
     renderAlerts();
     checkAlerts();
   }
 
-  function removeAlert(id) {
-    data.alerts = data.alerts.filter(function (a) { return a.id !== id; });
+  function removeAlert(cat) {
+    data.alerts = data.alerts.filter(function (a) { return a.category !== cat; });
     saveData(); renderAlerts();
   }
 
@@ -323,20 +326,27 @@
     if (!data.alerts.length) {
       var li = document.createElement('li');
       li.className = 'empty';
-      li.textContent = 'No watches yet. Pick a category above and press Watch.';
+      li.textContent = 'Nothing watched yet. Pick a category and tap Watch.';
       ul.appendChild(li);
       return;
     }
     data.alerts.forEach(function (a) {
       var li = document.createElement('li');
       li.className = 'store-row';
-      li.innerHTML = '<span class="store-main"><strong>' + esc(a.category) + '</strong>' +
-        '<span class="dim">' + (a.target != null ? 'alert under ' + money(a.target) : 'any price drop') +
-        ' · now ' + (data.lastPrices[a.id] != null ? money(data.lastPrices[a.id]) : '…') + '</span></span>' +
-        '<button type="button" class="tiny-danger" aria-label="Remove">✕</button>';
-      li.querySelector('.tiny-danger').addEventListener('click', function () { removeAlert(a.id); });
+      var now = data.lastPrices[a.category];
+      li.innerHTML =
+        '<span class="store-main"><strong>' + esc(a.category) + '</strong>' +
+        '<span class="dim">watching · cheapest now ' +
+        (now != null ? money(now) + unitLabel(currentBasis(a.category)) : '…') + '</span></span>' +
+        '<button type="button" class="tiny-danger" aria-label="Stop watching">✕</button>';
+      li.querySelector('.tiny-danger').addEventListener('click', function () { removeAlert(a.category); });
       ul.appendChild(li);
     });
+  }
+
+  function currentBasis(category) {
+    var best = cheapestIn(category);
+    return best ? best.unitPriceBasis : 'per 100 g';
   }
 
   function checkAlerts() {
@@ -346,23 +356,21 @@
       var best = cheapestIn(a.category);
       if (!best) return;
       var cur = best.unitPriceCad;
-      var prev = data.lastPrices[a.id];
-      var kind = null;
-      if (a.target != null && cur <= a.target) kind = 'target';
-      else if (prev != null && cur < prev) kind = 'drop';
-      if (kind) {
+      var prev = data.lastPrices[a.category];
+      if (prev != null && cur < prev) {
         data.feed.unshift({
           when: new Date().toISOString(), category: a.category,
-          price: cur, basis: best.unitPriceBasis, item: best.name, kind: kind
+          price: cur, prev: prev, basis: best.unitPriceBasis,
+          item: best.name, kind: 'drop'
         });
         newHits++;
       }
-      data.lastPrices[a.id] = cur;
+      data.lastPrices[a.category] = cur;
     });
     data.feed = data.feed.slice(0, 30);
     saveData();
     renderAlerts(); renderFeed();
-    if (newHits) renderBadge();
+    renderBadge();
   }
 
   function renderFeed() {
@@ -371,18 +379,17 @@
     if (!data.feed.length) {
       var li = document.createElement('li');
       li.className = 'empty';
-      li.textContent = 'Nothing yet. Update data/superstore-prices.json (rerun your scraper) and press "Check prices now".';
+      li.textContent = 'No drops yet. Prices are checked every time you open the site.';
       ul.appendChild(li);
       return;
     }
     data.feed.forEach(function (f) {
       var li = document.createElement('li');
-      li.className = 'feed-row ' + f.kind;
-      var verb = f.kind === 'target' ? 'hit your target' : 'dropped';
-      li.innerHTML = '<strong>' + esc(f.category) + '</strong> ' + verb + ' — ' +
-        money(f.price) + ' <span class="dim">(' +
-        (f.basis === 'per 100 g' ? 'per 100 g' : 'per egg') + ') · ' + esc(f.item) +
-        ' · ' + new Date(f.when).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' }) + '</span>';
+      li.className = 'feed-row drop';
+      li.innerHTML = '<strong>' + esc(f.category) + '</strong> dropped to ' + money(f.price) +
+        ' <span class="dim">(' + (f.basis === 'per 100 g' ? 'per 100 g' : 'per egg') +
+        ') · ' + esc(f.item) + ' · ' +
+        new Date(f.when).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' }) + '</span>';
       ul.appendChild(li);
     });
   }
@@ -406,9 +413,7 @@
     $('add-item-btn').addEventListener('click', addItem);
     $('list-input').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addItem(); } });
     $('add-alert-btn').addEventListener('click', addAlert);
-    $('check-alerts-btn').addEventListener('click', function () { loadPrices().then(function (p) { if (p) prices = p; checkAlerts(); }); });
 
-    // mark alerts seen when the Alerts tab is opened
     document.querySelectorAll('.drawer-tab').forEach(function (t) {
       t.addEventListener('click', function () { if (t.getAttribute('data-tab') === 'alerts') markFeedSeen(); });
     });
@@ -419,7 +424,7 @@
       var o = document.createElement('option'); o.value = ing; dl.appendChild(o);
     });
 
-    // alert categories from the price file
+    // watch categories from the price file
     var sel = $('alert-category');
     categories().forEach(function (c) {
       var o = document.createElement('option'); o.value = c;
@@ -431,21 +436,15 @@
   async function init() {
     wireDrawer();
 
-    if (AUTH0_DOMAIN.indexOf('YOUR_') === 0) {
-      $('user-when-out').innerHTML =
-        '<p class="drawer-note"><strong>Setup needed.</strong> Put your Auth0 domain and client ID ' +
-        'at the top of account.js (see README.md).</p>';
-    } else {
-      try {
-        auth0 = await makeClient();
-        if (window.location.search.indexOf('code=') > -1) {
-          await auth0.handleRedirectCallback();
-          window.history.replaceState({}, '', window.location.pathname);
-        }
-        user = await auth0.getUser();
-      } catch (e) {
-        console.warn('Auth0 init failed:', e);
+    try {
+      auth0 = await makeClient();
+      if (window.location.search.indexOf('code=') > -1) {
+        await auth0.handleRedirectCallback();
+        window.history.replaceState({}, '', window.location.pathname);
       }
+      user = await auth0.getUser();
+    } catch (e) {
+      console.warn('Auth0 init failed:', e);
     }
 
     renderUser();
@@ -453,7 +452,7 @@
     wire();
     prices = await loadPrices();
     renderStores(); renderList(); renderAlerts(); renderFeed(); renderBadge();
-    checkAlerts();
+    checkAlerts();  // prices are checked automatically on every visit
   }
 
   init();
