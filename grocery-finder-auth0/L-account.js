@@ -1,9 +1,11 @@
 /* L-account.js — Grocery Finder account kit (L = Louis / new code)
    Sign-in: Auth0 PKCE, no external library. Works on localhost and a
    real host (redirect back to the exact page URL).
-   Features: My Stores, shopping list (prices, pantry), price watches
-   with target prices, trip history + budget streak, meal plan week,
-   AI chef (Gemini) incl. "cook something cheap", saved recipes,
+   Features: My Stores, shopping list (prices across retailers, pantry),
+   price watches with target prices, trip history + budget streak,
+   meal plan week, AI chef (Gemini) incl. "cook something cheap",
+   "cook from my pantry" and pantry photo recognition (Gemini vision),
+   basket price comparison between retailers, saved recipes,
    device sync code, and cloud sync (Firestore REST, paste config once). */
 (function () {
   'use strict';
@@ -349,6 +351,10 @@
         added.push(n);
       }
     });
+    // mark a couple as pantry so "Cook from my pantry" demos right away
+    data.list.forEach(function (i) {
+      if (i.name === 'butter' || i.name === 'flour') i.pantry = true;
+    });
 
     if (!data.recipes.some(function (r) { return r.name === 'Pancakes (sample)'; })) {
       data.recipes.push({
@@ -478,7 +484,7 @@
     form.dispatchEvent(new Event('submit', { cancelable: true }));
   }
 
-  // ---------- prices ----------
+  // ---------- prices (multi-retailer) ----------
   function loadPrices() {
     return fetch(PRICES_URL)
       .then(function (r) { return r.ok ? r.json() : null; })
@@ -489,23 +495,34 @@
       });
   }
 
-  function categories() {
-    if (!prices) return [];
-    return Object.keys(prices.retailers.superstore.categories || {});
+  function retailers() {
+    if (!prices || !prices.retailers) return [];
+    return Object.keys(prices.retailers);
   }
 
-  function productsIn(category) {
-    return (prices.retailers.superstore.categories[category] || []);
+  function retailerName(key) {
+    var r = (prices && prices.retailers && prices.retailers[key]) || {};
+    return r.name || key;
+  }
+
+  function productsIn(retailerKey, category) {
+    var r = (prices && prices.retailers && prices.retailers[retailerKey]) || {};
+    return (r.categories && r.categories[category]) || [];
+  }
+
+  // alerts + "cook cheap" are anchored to the primary retailer (superstore)
+  function primaryCategories() {
+    return Object.keys(productsIn('superstore', null) && (prices.retailers.superstore.categories || {}));
   }
 
   function cheapestIn(category) {
-    var prods = productsIn(category);
+    var prods = productsIn('superstore', category);
     if (!prods.length) return null;
     return prods.reduce(function (a, b) { return (b.unitPriceCad < a.unitPriceCad) ? b : a; });
   }
 
   function cheapestCategories(n) {
-    return categories()
+    return primaryCategories()
       .map(function (c) { var b = cheapestIn(c); return b ? { category: c, best: b } : null; })
       .filter(Boolean)
       .sort(function (a, b) { return a.best.unitPriceCad - b.best.unitPriceCad; })
@@ -516,15 +533,24 @@
     return basis === 'per 100 g' ? '/100g' : '/egg';
   }
 
+  function currentBasis(category) {
+    var best = cheapestIn(category);
+    return best ? best.unitPriceBasis : 'per 100 g';
+  }
+
+  // match a list item against every retailer; each match is tagged with its retailer
   function matchProducts(itemName) {
     var words = itemName.toLowerCase().split(/[^a-z]+/).filter(function (w) { return w.length >= 4; });
     if (!words.length) return [];
     var out = [];
-    categories().forEach(function (cat) {
-      productsIn(cat).forEach(function (p) {
-        var name = (p.name || '').toLowerCase();
-        var hits = words.filter(function (w) { return name.indexOf(w) > -1; }).length;
-        if (hits) out.push({ product: p, category: cat, hits: hits });
+    retailers().forEach(function (rk) {
+      var cats = (prices.retailers[rk].categories) || {};
+      Object.keys(cats).forEach(function (cat) {
+        cats[cat].forEach(function (p) {
+          var name = (p.name || '').toLowerCase();
+          var hits = words.filter(function (w) { return name.indexOf(w) > -1; }).length;
+          if (hits) out.push({ product: p, category: cat, retailer: rk, hits: hits });
+        });
       });
     });
     out.sort(function (a, b) { return b.hits - a.hits || a.product.unitPriceCad - b.product.unitPriceCad; });
@@ -544,15 +570,33 @@
     return true;
   }
 
+  function addPantryItem(name) {
+    var n = (name || '').trim().toLowerCase();
+    if (!n) return;
+    var existing = data.list.find(function (i) { return i.name === n; });
+    if (existing) { existing.pantry = true; }
+    else {
+      data.list.push({ name: n, checked: false, pantry: true, matches: matchProducts(n).slice(0, 3) });
+    }
+    saveData();
+    renderList();
+  }
+
   function togglePantry(item) {
     item.pantry = !item.pantry;
     saveData(); renderList();
+  }
+
+  function pantryItems() {
+    return data.list.filter(function (i) { return i.pantry && !i.checked; });
   }
 
   function renderList() {
     var ul = $('shopping-list');
     ul.replaceChildren();
     var total = 0, priced = 0;
+    var byRetailer = {};
+    var multiRetailer = retailers().length > 1;
 
     data.list.forEach(function (item) {
       var li = document.createElement('li');
@@ -563,8 +607,13 @@
       if (best) {
         var p = best.product;
         priceHtml = '<span class="price">' + money(p.priceCad) +
-          ' <span class="dim">(' + money(p.unitPriceCad) + unitLabel(p.unitPriceBasis) + ')</span></span>';
-        if (!item.checked && !item.pantry) { total += p.priceCad; priced++; }
+          ' <span class="dim">(' + money(p.unitPriceCad) + unitLabel(p.unitPriceBasis) +
+          (multiRetailer ? ' · ' + esc(retailerName(best.retailer)) : '') + ')</span></span>';
+        if (!item.checked && !item.pantry) {
+          total += p.priceCad; priced++;
+          if (byRetailer[best.retailer] == null) byRetailer[best.retailer] = 0;
+          byRetailer[best.retailer] += p.priceCad;
+        }
       } else {
         priceHtml = '<span class="dim">not in price file</span>';
       }
@@ -594,12 +643,36 @@
       ul.appendChild(li);
       $('list-total').textContent = '';
       renderBudgetLine(0);
+      renderBasketCompare({});
       return;
     }
     $('list-total').textContent = priced
-      ? 'To buy: about ' + money(total) + ' at Superstore (' + priced + ' item' + (priced === 1 ? '' : 's') + ' priced, cheapest package each)'
+      ? 'To buy: about ' + money(total) + ' at the cheapest store per item (' + priced + ' item' + (priced === 1 ? '' : 's') + ' priced)'
       : 'Add items to price them';
     renderBudgetLine(total);
+    renderBasketCompare(byRetailer, priced);
+  }
+
+  // basket totals per retailer: what the whole (to-buy) basket costs if you
+  // buy every matched item at that one store
+  function renderBasketCompare(byRetailer, pricedCount) {
+    var el = $('basket-compare');
+    if (!el) return;
+    var keys = Object.keys(byRetailer || {}).filter(function (k) { return byRetailer[k] > 0; });
+    if (keys.length < 2 || !pricedCount) { el.hidden = true; return; }
+
+    var cheapestKey = keys.reduce(function (a, b) { return byRetailer[b] < byRetailer[a] ? b : a; });
+    var mostKey = keys.reduce(function (a, b) { return byRetailer[b] > byRetailer[a] ? b : a; });
+    var save = byRetailer[mostKey] - byRetailer[cheapestKey];
+
+    var parts = keys.map(function (k) {
+      return retailerName(k) + ' ' + money(byRetailer[k]) + (k === cheapestKey ? ' ←' : '');
+    });
+    var text = 'Whole basket: ' + parts.join(' · ');
+    if (save > 0.005) text += ' — buy it all at ' + retailerName(cheapestKey) + ' and save ' + money(save);
+    el.hidden = false;
+    el.className = 'drawer-total compare';
+    el.textContent = text;
   }
 
   function finishTrip() {
@@ -655,7 +728,6 @@
   }
 
   function renderWeek() {
-    // stats + streak
     var el = $('week-stats');
     var monthAgo = Date.now() - 30 * 864e5;
     var spent30 = data.trips.filter(function (t) { return new Date(t.date).getTime() >= monthAgo; })
@@ -673,7 +745,6 @@
         : '  Streak: ' + streak + ' — keep trips under ' + money(data.budget) + ' to build it';
     }
 
-    // meal plan
     var box = $('plan-list');
     box.replaceChildren();
     var recipeNames = data.recipes.map(function (r) { return r.name; });
@@ -700,7 +771,6 @@
       box.appendChild(row);
     });
 
-    // trips
     var ul = $('trips-list');
     ul.replaceChildren();
     if (!data.trips.length) {
@@ -757,6 +827,23 @@
     setTimeout(function () { btn.textContent = resetText; }, 2600);
   }
 
+  async function geminiCall(parts) {
+    var apiKey = getAiKey();
+    if (!apiKey) throw new Error('no-key');
+    var res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent?key=' + encodeURIComponent(apiKey), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: parts }] })
+    });
+    if (!res.ok) {
+      var err = await res.json().catch(function () { return {}; });
+      throw new Error((err.error && err.error.message) || ('Gemini error ' + res.status));
+    }
+    var j = await res.json();
+    return (j.candidates && j.candidates[0] && j.candidates[0].content.parts || [])
+      .map(function (p) { return p.text || ''; }).join('');
+  }
+
   async function aiRun(desc, busyBtnId, resetText) {
     var apiKey = getAiKey();
     if (!apiKey) { aiFlash(busyBtnId, 'Paste your Gemini API key first', resetText); return; }
@@ -771,17 +858,7 @@
         'Reply with ONLY compact JSON, no markdown, in this exact shape: ' +
         '{"name":"short recipe name","ingredients":["each ingredient with amount, e.g. 2 cups flour"],"steps":["numbered cooking steps"]}. ' +
         'User request: ' + desc;
-      var res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent?key=' + encodeURIComponent(apiKey), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-      });
-      if (!res.ok) {
-        var err = await res.json().catch(function () { return {}; });
-        throw new Error((err.error && err.error.message) || ('Gemini error ' + res.status));
-      }
-      var j = await res.json();
-      var text = (j.candidates && j.candidates[0] && j.candidates[0].content.parts || []).map(function (p) { return p.text || ''; }).join('');
+      var text = await geminiCall([{ text: prompt }]);
       var json = JSON.parse(text.replace(/^```(json)?/i, '').replace(/```$/, '').trim());
       aiRecipe = {
         name: String(json.name || desc).trim(),
@@ -810,6 +887,59 @@
       ' (these are the cheapest groceries this week). Total ingredient cost should stay under $10.';
     $('ai-desc').value = desc;
     await aiRun(desc, 'ai-cheap-btn', 'Cook something cheap ✨');
+  }
+
+  async function aiPantry() {
+    var items = pantryItems().map(function (i) { return i.name; });
+    if (!items.length) {
+      aiFlash('pantry-cook-btn', '🧺 items first — tap the basket on list items, or use the photo button', 'Cook from my 🧺 pantry');
+      return;
+    }
+    var desc = 'A simple, tasty recipe using mainly what I already have at home: ' + items.join(', ') +
+      '. Minimise any extra ingredients I would need to buy; keep the recipe to 6 extras at most.';
+    $('ai-desc').value = desc;
+    await aiRun(desc, 'pantry-cook-btn', 'Cook from my 🧺 pantry');
+  }
+
+  // Gemini vision: identify ingredients from a fridge / pantry photo
+  async function aiFromPhoto() {
+    var input = $('pantry-photo-input');
+    var file = input.files && input.files[0];
+    if (!file) return;
+    var btn = $('pantry-photo-btn');
+    var resetText = '📸 Photo my fridge or pantry — AI finds the ingredients';
+
+    if (!getAiKey()) { aiFlash('pantry-photo-btn', 'Paste your Gemini API key first', resetText); input.value = ''; return; }
+
+    btn.disabled = true; btn.textContent = 'Looking at your photo…';
+    try {
+      var dataUrl = await new Promise(function (resolve, reject) {
+        var fr = new FileReader();
+        fr.onload = function () { resolve(fr.result); };
+        fr.onerror = reject;
+        fr.readAsDataURL(file);
+      });
+      var b64 = dataUrl.split(',')[1];
+      var mime = file.type || 'image/jpeg';
+      var text = await geminiCall([
+        { text: 'This is a photo of a fridge, freezer or pantry. Identify the food ingredients you can see. ' +
+          'Reply with ONLY a compact JSON array of simple lowercase ingredient names, no markdown, ' +
+          'e.g. ["eggs","milk","spinach","cheddar cheese"]. Maximum 15 items. Only real food ingredients.' },
+        { inlineData: { mimeType: mime, data: b64 } }
+      ]);
+      var found = JSON.parse(text.replace(/^```(json)?/i, '').replace(/```$/, '').trim());
+      if (!Array.isArray(found) || !found.length) throw new Error('no ingredients found');
+      found.slice(0, 15).forEach(addPantryItem);
+      btn.textContent = 'Found ' + found.length + ': ' + found.slice(0, 5).join(', ') +
+        (found.length > 5 ? '…' : '') + ' — added to 🧺';
+      switchTab('list');
+    } catch (e) {
+      var msg = (e && e.message) ? e.message : 'try again';
+      btn.textContent = 'Failed — ' + (msg === 'no-key' ? 'no API key' : msg.slice(0, 50));
+      console.warn('pantry photo failed:', e);
+    }
+    input.value = '';
+    setTimeout(function () { btn.textContent = resetText; btn.disabled = false; }, 4000);
   }
 
   function renderAiResult() {
@@ -1016,11 +1146,6 @@
     });
   }
 
-  function currentBasis(category) {
-    var best = cheapestIn(category);
-    return best ? best.unitPriceBasis : 'per 100 g';
-  }
-
   function checkAlerts() {
     if (!prices || !data.alerts.length) { renderFeed(); return; }
     data.alerts.forEach(function (a) {
@@ -1105,6 +1230,9 @@
 
     $('ai-generate-btn').addEventListener('click', aiGenerate);
     $('ai-cheap-btn').addEventListener('click', aiCheap);
+    $('pantry-cook-btn').addEventListener('click', aiPantry);
+    $('pantry-photo-btn').addEventListener('click', function () { $('pantry-photo-input').click(); });
+    $('pantry-photo-input').addEventListener('change', aiFromPhoto);
     $('ai-desc').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); aiGenerate(); } });
     $('ai-add-btn').addEventListener('click', aiAddToList);
     $('ai-save-btn').addEventListener('click', aiSave);
@@ -1126,7 +1254,7 @@
     });
 
     var sel = $('alert-category');
-    categories().forEach(function (c) {
+    primaryCategories().forEach(function (c) {
       var o = document.createElement('option'); o.value = c;
       o.textContent = c.charAt(0).toUpperCase() + c.slice(1); sel.appendChild(o);
     });
