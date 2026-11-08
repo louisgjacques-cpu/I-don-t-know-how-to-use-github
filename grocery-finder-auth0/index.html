@@ -4,6 +4,8 @@
   Your Auth0 Domain and Client ID are already set inside account.js.
   Sign-in works when served from http://localhost:8000.
   My Recipes tab: AI generates recipes from a description (Gemini).
+  After sign-in the drawer opens automatically; a sample-data button
+  fills the account with demo content for testing.
 ============================================================ -->
 <html lang="en-CA">
 <head>
@@ -116,7 +118,10 @@
       </div>
       <div id="user-when-in" hidden>
         <p id="user-chip" class="user-chip"></p>
-        <button type="button" id="auth-signout-btn" class="ghost-btn">Log out</button>
+        <div class="row">
+          <button type="button" id="auth-signout-btn" class="ghost-btn">Log out</button>
+          <button type="button" id="demo-data-btn" class="ghost-btn">Load sample data</button>
+        </div>
       </div>
     </div>
 

@@ -2,7 +2,9 @@
    Sign-in talks to Auth0 directly (PKCE), no external library needed.
    1. One-click Google sign-in  2. My Stores  3. Shopping list
    4. Simple price-drop watches  5. My Recipes: AI chef (Gemini) +
-      saved recipes + optional budget, pantry marks, device sync code. */
+      saved recipes + optional budget, pantry marks, device sync code.
+   After sign-in the drawer opens automatically; "Load sample data"
+   fills the account with demo content. */
 (function () {
   'use strict';
 
@@ -182,6 +184,69 @@
 
     $('auth-signin-btn').addEventListener('click', function () { signIn(false); });
     $('auth-signout-btn').addEventListener('click', signOut);
+  }
+
+  function switchTab(name) {
+    var tab = document.querySelector('.drawer-tab[data-tab="' + name + '"]');
+    if (tab) tab.click();
+  }
+
+  // ---------- sample data (for testing) ----------
+  function loadDemo() {
+    var btn = $('demo-data-btn');
+    var added = [];
+
+    var demoStores = [
+      { name: 'Real Canadian Superstore', address: '350 SE Marine Dr, Vancouver', lat: 49.2736, lon: -123.0945, km: 1.2 },
+      { name: 'No Frills', address: '2545 Quebec St, Vancouver', lat: 49.2632, lon: -123.1004, km: 2.1 },
+      { name: 'T&T Supermarket', address: '2800 E 1st Ave, Vancouver', lat: 49.2717, lon: -123.0682, km: 3.0 }
+    ];
+    demoStores.forEach(function (s) {
+      var dup = data.stores.some(function (m) { return m.name === s.name; });
+      if (!dup) { data.stores.push(s); added.push(s.name); }
+    });
+    if (!data.area) {
+      data.area = { label: 'V6K 1P2', lat: 49.2639, lon: -123.0670, input: 'V6K 1P2', mode: 'postal' };
+    }
+
+    ['butter', 'eggs', 'rice', 'milk', 'flour'].forEach(function (n) {
+      if (!data.list.some(function (i) { return i.name === n; })) {
+        data.list.push({ name: n, checked: false, pantry: false, matches: matchProducts(n).slice(0, 3) });
+        added.push(n);
+      }
+    });
+
+    if (!data.recipes.some(function (r) { return r.name === 'Pancakes (sample)'; })) {
+      data.recipes.push({
+        name: 'Pancakes (sample)',
+        items: ['flour', 'milk', 'eggs', 'butter'],
+        steps: [
+          'Whisk 1 cup flour, 1 tbsp sugar and a pinch of salt.',
+          'Add 1 cup milk and 2 eggs; whisk until smooth.',
+          'Melt 2 tbsp butter in a pan over medium heat.',
+          'Pour batter in circles; flip when bubbles form, about 2 min per side.',
+          'Stack, add maple syrup, eat.'
+        ]
+      });
+      added.push('Pancakes (sample)');
+    }
+
+    if (!data.alerts.some(function (a) { return a.category === 'eggs'; })) {
+      data.alerts.push({ category: 'eggs', createdAt: new Date().toISOString() });
+      added.push('eggs watch');
+    }
+
+    if (!data.budget) data.budget = 60;
+
+    saveData();
+    renderStores(); renderList(); renderAlerts(); renderFeed(); renderBadge(); renderRecipes(); checkAlerts();
+    $('budget-input').value = data.budget == null ? '' : data.budget;
+    switchTab('stores');
+
+    btn.textContent = added.length
+      ? 'Added ' + added.length + ' things ✓ (check the tabs)'
+      : 'Sample data already loaded ✓';
+    setTimeout(function () { btn.textContent = 'Load sample data'; }, 2500);
   }
 
   // ---------- My Stores ----------
@@ -494,12 +559,10 @@
     if (!aiRecipe) return;
     var added = 0;
     aiRecipe.items.forEach(function (raw) {
-      // strip amounts: "2 cups flour" -> "flour" for matching
       var core = raw.replace(/^\s*[\d½¼¾\/\.]+\s*\w*\s*/, '').trim();
       if (addItem(core || raw)) added++;
     });
-    var tab = document.querySelector('.drawer-tab[data-tab="list"]');
-    if (tab) tab.click();
+    switchTab('list');
   }
 
   function aiSave() {
@@ -537,8 +600,7 @@
       if (addItem(core || raw)) added++;
     });
     saveData(); renderList();
-    var tab = document.querySelector('.drawer-tab[data-tab="list"]');
-    if (tab) tab.click();
+    switchTab('list');
   }
 
   function removeRecipe(name) {
@@ -615,8 +677,7 @@
       saveData();
       inp.value = '';
       renderStores(); renderList(); renderAlerts(); renderFeed(); renderBadge(); renderRecipes(); checkAlerts();
-      var tab = document.querySelector('.drawer-tab[data-tab="stores"]');
-      if (tab) tab.click();
+      switchTab('stores');
     } catch (e) {
       inp.value = '';
       inp.placeholder = 'That code didn\'t work — try again';
@@ -731,7 +792,8 @@
     $('list-input').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addItem(); } });
     $('add-alert-btn').addEventListener('click', addAlert);
 
-    // AI chef + recipes
+    $('demo-data-btn').addEventListener('click', loadDemo);
+
     $('ai-generate-btn').addEventListener('click', aiGenerate);
     $('ai-desc').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); aiGenerate(); } });
     $('ai-add-btn').addEventListener('click', aiAddToList);
@@ -759,7 +821,6 @@
       o.textContent = c.charAt(0).toUpperCase() + c.slice(1); sel.appendChild(o);
     });
 
-    // prefill saved key
     try { var k = localStorage.getItem(AI_KEY_STORE); if (k) $('ai-key').value = k; } catch (e) {}
   }
 
@@ -767,9 +828,10 @@
   async function init() {
     wireDrawer();
 
+    var justSignedIn = false;
     if (!onFileProtocol()) {
       try {
-        await finishSignIn();
+        justSignedIn = await finishSignIn();
         if (!user) user = savedProfile();
       } catch (e) {
         auth0Error = (e && e.message) ? e.message : String(e);
@@ -782,6 +844,8 @@
     prices = await loadPrices();
     renderStores(); renderList(); renderAlerts(); renderFeed(); renderBadge(); renderRecipes();
     checkAlerts();
+
+    if (justSignedIn) openDrawer();
   }
 
   init();
