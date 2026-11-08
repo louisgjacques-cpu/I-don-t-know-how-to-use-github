@@ -1,8 +1,10 @@
 /* L-account.js — Grocery Finder account kit (L = Louis / new code)
-   Sign-in: Auth0 PKCE, no external library. Redirect back to the exact
-   page URL, so it works on http://localhost:8000 and on a real host.
-   Cloud sync: Firestore REST — paste a Firebase config once, data then
-   syncs per signed-in user across devices (last write wins). */
+   Sign-in: Auth0 PKCE, no external library. Works on localhost and a
+   real host (redirect back to the exact page URL).
+   Features: My Stores, shopping list (prices, pantry), price watches
+   with target prices, trip history + budget streak, meal plan week,
+   AI chef (Gemini) incl. "cook something cheap", saved recipes,
+   device sync code, and cloud sync (Firestore REST, paste config once). */
 (function () {
   'use strict';
 
@@ -18,6 +20,7 @@
   var AI_KEY_STORE = 'gf-gemini-key';
   var CLOUD_STORE = 'gf-firebase-cfg';
   var RETURN_TO = window.location.origin + window.location.pathname;
+  var DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   var user   = null;
   var auth0Error = null;
@@ -28,14 +31,14 @@
   var pushTimer = null;
 
   function emptyData() {
-    return { area: null, stores: [], list: [], alerts: [], lastPrices: {}, feed: [], recipes: [], budget: null, updatedAt: 0 };
+    return { area: null, stores: [], list: [], alerts: [], lastPrices: {}, feed: [], recipes: [], trips: [], plan: {}, budget: null, updatedAt: 0 };
   }
 
   // ---------- tiny helpers ----------
   function $(id) { return document.getElementById(id); }
   function esc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    return String(s == null ? '' : s).replace(/[&<>\"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#39;' }[c];
     });
   }
   function money(n) { return '$' + Number(n).toFixed(2); }
@@ -47,7 +50,12 @@
     Object.keys(base).forEach(function (k) { if (data[k] == null) data[k] = base[k]; });
     if (!data.updatedAt) data.updatedAt = 0;
     data.alerts = (data.alerts || []).map(function (a) {
-      return { category: a.category || String(a.id || '').split(':')[0], createdAt: a.createdAt || new Date().toISOString() };
+      return {
+        category: a.category || String(a.id || '').split(':')[0],
+        target: (typeof a.target === 'number') ? a.target : null,
+        targetHit: !!a.targetHit,
+        createdAt: a.createdAt || new Date().toISOString()
+      };
     }).filter(function (a, i, all) {
       return a.category && !all.slice(0, i).some(function (b) { return b.category === a.category; });
     });
@@ -57,6 +65,8 @@
     data.recipes = (data.recipes || []).map(function (r) {
       return { name: r.name, items: r.items || [], steps: r.steps || [] };
     });
+    data.trips = (data.trips || []).filter(function (t) { return t && t.date && typeof t.total === 'number'; });
+    if (!data.plan) data.plan = {};
   }
   function saveData(skipCloud) {
     data.updatedAt = Date.now();
@@ -64,7 +74,7 @@
     if (!skipCloud) scheduleCloudPush();
   }
   function renderAll() {
-    renderStores(); renderList(); renderAlerts(); renderFeed(); renderBadge(); renderRecipes();
+    renderStores(); renderList(); renderWeek(); renderAlerts(); renderFeed(); renderBadge(); renderRecipes();
     $('budget-input').value = data.budget == null ? '' : data.budget;
     checkAlerts();
   }
@@ -356,8 +366,18 @@
     }
 
     if (!data.alerts.some(function (a) { return a.category === 'eggs'; })) {
-      data.alerts.push({ category: 'eggs', createdAt: new Date().toISOString() });
-      added.push('eggs watch');
+      data.alerts.push({ category: 'eggs', target: 0.30, targetHit: false, createdAt: new Date().toISOString() });
+      added.push('eggs watch (target $0.30/egg)');
+    }
+
+    if (!data.trips.length) {
+      data.trips.push({ date: new Date(Date.now() - 3 * 864e5).toISOString(), total: 42.5, items: 9 });
+      added.push('sample trip');
+    }
+    if (!data.plan || !data.plan.Mon) {
+      data.plan = data.plan || {};
+      data.plan.Mon = 'Pancakes (sample)';
+      added.push('meal plan');
     }
 
     if (!data.budget) data.budget = 60;
@@ -484,6 +504,14 @@
     return prods.reduce(function (a, b) { return (b.unitPriceCad < a.unitPriceCad) ? b : a; });
   }
 
+  function cheapestCategories(n) {
+    return categories()
+      .map(function (c) { var b = cheapestIn(c); return b ? { category: c, best: b } : null; })
+      .filter(Boolean)
+      .sort(function (a, b) { return a.best.unitPriceCad - b.best.unitPriceCad; })
+      .slice(0, n || 3);
+  }
+
   function unitLabel(basis) {
     return basis === 'per 100 g' ? '/100g' : '/egg';
   }
@@ -574,7 +602,27 @@
     renderBudgetLine(total);
   }
 
-  // ---------- weekly budget (optional) ----------
+  function finishTrip() {
+    var done = data.list.filter(function (i) { return i.checked && !i.pantry; });
+    if (!done.length) {
+      $('finish-trip-btn').textContent = 'Check items off first';
+      setTimeout(function () { $('finish-trip-btn').textContent = '✅ Finish trip — archive the checked items'; }, 2000);
+      return;
+    }
+    var total = done.reduce(function (sum, i) {
+      var best = i.matches && i.matches[0];
+      return sum + (best ? best.product.priceCad : 0);
+    }, 0);
+    data.trips.unshift({ date: new Date().toISOString(), total: Math.round(total * 100) / 100, items: done.length });
+    data.list = data.list.filter(function (i) { return !(i.checked && !i.pantry); });
+    saveData();
+    renderList(); renderWeek();
+    $('finish-trip-btn').textContent = 'Trip saved: ' + money(total) + ' ✓ (see Week tab)';
+    setTimeout(function () { $('finish-trip-btn').textContent = '✅ Finish trip — archive the checked items'; }, 2600);
+    switchTab('week');
+  }
+
+  // ---------- weekly budget ----------
   function renderBudgetLine(total) {
     var el = $('budget-line');
     if (!data.budget) { el.hidden = true; return; }
@@ -590,8 +638,107 @@
     var v = $('budget-input').value;
     data.budget = (v === '' || Number(v) <= 0) ? null : Number(v);
     saveData();
-    renderList();
+    renderList(); renderWeek();
     $('budget-input').value = data.budget == null ? '' : data.budget;
+  }
+
+  // ---------- Week tab: stats, streak, meal plan, trip history ----------
+  function budgetStreak() {
+    if (!data.budget) return null;
+    var sorted = data.trips.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+    var streak = 0;
+    for (var i = 0; i < sorted.length; i++) {
+      if (sorted[i].total <= data.budget) streak++;
+      else break;
+    }
+    return streak;
+  }
+
+  function renderWeek() {
+    // stats + streak
+    var el = $('week-stats');
+    var monthAgo = Date.now() - 30 * 864e5;
+    var spent30 = data.trips.filter(function (t) { return new Date(t.date).getTime() >= monthAgo; })
+      .reduce(function (s, t) { return s + t.total; }, 0);
+    var streak = budgetStreak();
+    var parts = [];
+    parts.push('Trips: ' + data.trips.length);
+    parts.push('Spent last 30 days: ' + money(spent30));
+    if (data.budget) parts.push('Budget: ' + money(data.budget) + '/wk');
+    el.textContent = parts.join(' · ');
+    el.className = 'drawer-note' + (streak != null && streak >= 2 ? ' streak' : '');
+    if (streak != null) {
+      el.textContent += streak >= 2
+        ? '  🔥 ' + streak + ' trips under budget in a row!'
+        : '  Streak: ' + streak + ' — keep trips under ' + money(data.budget) + ' to build it';
+    }
+
+    // meal plan
+    var box = $('plan-list');
+    box.replaceChildren();
+    var recipeNames = data.recipes.map(function (r) { return r.name; });
+    DAYS.forEach(function (day) {
+      var row = document.createElement('div');
+      row.className = 'plan-row';
+      var sel = document.createElement('select');
+      sel.setAttribute('aria-label', 'Recipe for ' + day);
+      var none = document.createElement('option');
+      none.value = ''; none.textContent = day + ' —';
+      sel.appendChild(none);
+      recipeNames.forEach(function (n) {
+        var o = document.createElement('option');
+        o.value = n; o.textContent = day + ' · ' + n;
+        sel.appendChild(o);
+      });
+      sel.value = data.plan[day] || '';
+      sel.addEventListener('change', function () {
+        if (sel.value) data.plan[day] = sel.value;
+        else delete data.plan[day];
+        saveData();
+      });
+      row.appendChild(sel);
+      box.appendChild(row);
+    });
+
+    // trips
+    var ul = $('trips-list');
+    ul.replaceChildren();
+    if (!data.trips.length) {
+      var li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = 'No trips yet. Check items off in the List tab, then Finish trip.';
+      ul.appendChild(li);
+      return;
+    }
+    data.trips.slice(0, 5).forEach(function (t) {
+      var li = document.createElement('li');
+      li.className = 'store-row';
+      li.innerHTML =
+        '<span class="store-main"><strong>' + money(t.total) + '</strong>' +
+        '<span class="dim">' + new Date(t.date).toLocaleDateString('en-CA', { dateStyle: 'medium' }) + ' · ' + t.items + ' items</span></span>';
+      ul.appendChild(li);
+    });
+  }
+
+  function addWeekToList() {
+    var planned = DAYS.map(function (d) { return data.plan[d]; }).filter(Boolean);
+    if (!planned.length) {
+      $('add-week-btn').textContent = 'Pick recipes for at least one day';
+      setTimeout(function () { $('add-week-btn').textContent = 'Add whole week to list'; }, 2000);
+      return;
+    }
+    planned.forEach(function (name) {
+      var r = data.recipes.find(function (x) { return x.name === name; });
+      if (!r) return;
+      r.items.forEach(function (raw) {
+        var core = raw.replace(/^\s*[\d½¼¾\/\.]+\s*\w*\s*/, '').trim();
+        addItem(core || raw);
+      });
+    });
+    saveData(); renderList();
+    $('add-week-btn').textContent = 'Week added ✓';
+    setTimeout(function () { $('add-week-btn').textContent = 'Add whole week to list'; }, 2000);
+    switchTab('list');
   }
 
   // ---------- AI chef (Gemini) ----------
@@ -604,19 +751,18 @@
     try { return localStorage.getItem(AI_KEY_STORE) || ''; } catch (e) { return ''; }
   }
 
-  function aiFlash(msg) {
-    var btn = $('ai-generate-btn');
+  function aiFlash(btnId, msg, resetText) {
+    var btn = $(btnId);
     btn.textContent = msg;
-    setTimeout(function () { btn.textContent = 'Make the recipe'; }, 2600);
+    setTimeout(function () { btn.textContent = resetText; }, 2600);
   }
 
-  async function aiGenerate() {
+  async function aiRun(desc, busyBtnId, resetText) {
     var apiKey = getAiKey();
-    if (!apiKey) { aiFlash('Paste your Gemini API key first'); return; }
-    var desc = $('ai-desc').value.trim();
-    if (!desc) { aiFlash('Describe what you want to eat'); return; }
+    if (!apiKey) { aiFlash(busyBtnId, 'Paste your Gemini API key first', resetText); return; }
+    if (!desc) { aiFlash(busyBtnId, 'Describe what you want to eat', resetText); return; }
 
-    var btn = $('ai-generate-btn');
+    var btn = $(busyBtnId);
     btn.disabled = true; btn.textContent = 'Cooking…';
     try {
       var prompt =
@@ -643,15 +789,27 @@
         steps: (json.steps || []).map(function (s) { return String(s).trim(); }).filter(Boolean)
       };
       renderAiResult();
-      btn.textContent = 'Make the recipe';
     } catch (e) {
-      btn.disabled = false;
-      btn.textContent = 'Make the recipe';
-      aiFlash('Failed — ' + (e && e.message ? e.message.slice(0, 60) : 'try again'));
+      aiFlash(busyBtnId, 'Failed — ' + (e && e.message ? e.message.slice(0, 50) : 'try again'), resetText);
       console.warn('AI generate failed:', e);
       return;
     }
-    btn.disabled = false;
+    btn.disabled = false; btn.textContent = resetText;
+  }
+
+  async function aiGenerate() {
+    await aiRun($('ai-desc').value.trim(), 'ai-generate-btn', 'Make the recipe');
+  }
+
+  async function aiCheap() {
+    if (!prices) { aiFlash('ai-cheap-btn', 'Prices not loaded yet', 'Cook something cheap ✨'); return; }
+    var cheap = cheapestCategories(3);
+    if (!cheap.length) { aiFlash('ai-cheap-btn', 'No price data to cook with', 'Cook something cheap ✨'); return; }
+    var names = cheap.map(function (c) { return c.category; }).join(', ');
+    var desc = 'A simple, cheap, filling dinner recipe using mainly: ' + names +
+      ' (these are the cheapest groceries this week). Total ingredient cost should stay under $10.';
+    $('ai-desc').value = desc;
+    await aiRun(desc, 'ai-cheap-btn', 'Cook something cheap ✨');
   }
 
   function renderAiResult() {
@@ -691,7 +849,7 @@
     if (!aiRecipe) return;
     if (data.recipes.some(function (r) { return r.name === aiRecipe.name; })) { flashRecipe('Already saved ✓'); return; }
     data.recipes.push({ name: aiRecipe.name, items: aiRecipe.items, steps: aiRecipe.steps });
-    saveData(); renderRecipes();
+    saveData(); renderRecipes(); renderWeek();
     flashRecipe('Saved ✓');
   }
 
@@ -705,7 +863,7 @@
     if (data.recipes.some(function (r) { return r.name === name; })) { flashRecipe('Recipe already saved'); return; }
     data.recipes.push({ name: name, items: items, steps: [] });
     $('recipe-name').value = ''; $('recipe-ingredients').value = '';
-    saveData(); renderRecipes();
+    saveData(); renderRecipes(); renderWeek();
     flashRecipe('Saved "' + name + '" ✓');
   }
 
@@ -726,7 +884,8 @@
 
   function removeRecipe(name) {
     data.recipes = data.recipes.filter(function (r) { return r.name !== name; });
-    saveData(); renderRecipes();
+    DAYS.forEach(function (d) { if (data.plan[d] === name) delete data.plan[d]; });
+    saveData(); renderRecipes(); renderWeek();
   }
 
   function renderRecipes() {
@@ -810,7 +969,14 @@
     var cat = $('alert-category').value;
     if (!cat) return;
     if (data.alerts.some(function (a) { return a.category === cat; })) return;
-    data.alerts.push({ category: cat, createdAt: new Date().toISOString() });
+    var t = parseFloat($('alert-target').value);
+    data.alerts.push({
+      category: cat,
+      target: (isFinite(t) && t > 0) ? t : null,
+      targetHit: false,
+      createdAt: new Date().toISOString()
+    });
+    $('alert-target').value = '';
     saveData();
     renderAlerts();
     checkAlerts();
@@ -827,7 +993,7 @@
     if (!data.alerts.length) {
       var li = document.createElement('li');
       li.className = 'empty';
-      li.textContent = 'Nothing watched yet. Pick a category and tap Watch.';
+      li.textContent = 'Nothing watched yet. Pick a category, optionally set a target price, tap Watch.';
       ul.appendChild(li);
       return;
     }
@@ -835,10 +1001,15 @@
       var li = document.createElement('li');
       li.className = 'store-row';
       var now = data.lastPrices[a.category];
+      var sub = 'watching';
+      if (a.target != null) {
+        sub += ' · target ' + money(a.target) + unitLabel(currentBasis(a.category));
+        if (a.targetHit) sub += ' ✓ hit';
+      }
+      if (now != null) sub += ' · now ' + money(now) + unitLabel(currentBasis(a.category));
       li.innerHTML =
         '<span class="store-main"><strong>' + esc(a.category) + '</strong>' +
-        '<span class="dim">watching · cheapest now ' +
-        (now != null ? money(now) + unitLabel(currentBasis(a.category)) : '…') + '</span></span>' +
+        '<span class="dim">' + esc(sub) + '</span></span>' +
         '<button type="button" class="tiny-danger" aria-label="Stop watching">✕</button>';
       li.querySelector('.tiny-danger').addEventListener('click', function () { removeAlert(a.category); });
       ul.appendChild(li);
@@ -864,6 +1035,14 @@
           item: best.name, kind: 'drop'
         });
       }
+      if (a.target != null && !a.targetHit && cur <= a.target) {
+        a.targetHit = true;
+        data.feed.unshift({
+          when: new Date().toISOString(), category: a.category,
+          price: cur, basis: best.unitPriceBasis,
+          item: best.name, kind: 'target'
+        });
+      }
       data.lastPrices[a.category] = cur;
     });
     data.feed = data.feed.slice(0, 30);
@@ -884,8 +1063,11 @@
     }
     data.feed.forEach(function (f) {
       var li = document.createElement('li');
-      li.className = 'feed-row drop';
-      li.innerHTML = '<strong>' + esc(f.category) + '</strong> dropped to ' + money(f.price) +
+      li.className = 'feed-row drop' + (f.kind === 'target' ? ' target' : '');
+      var lead = f.kind === 'target'
+        ? '<strong>' + esc(f.category) + '</strong> hit your target: ' + money(f.price)
+        : '<strong>' + esc(f.category) + '</strong> dropped to ' + money(f.price);
+      li.innerHTML = lead +
         ' <span class="dim">(' + (f.basis === 'per 100 g' ? 'per 100 g' : 'per egg') +
         ') · ' + esc(f.item) + ' · ' +
         new Date(f.when).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' }) + '</span>';
@@ -912,13 +1094,17 @@
     $('search-my-area-btn').addEventListener('click', searchMyArea);
     $('add-item-btn').addEventListener('click', function () { addItem(); });
     $('list-input').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addItem(); } });
+    $('finish-trip-btn').addEventListener('click', finishTrip);
+    $('add-week-btn').addEventListener('click', addWeekToList);
     $('add-alert-btn').addEventListener('click', addAlert);
+    $('alert-target').addEventListener('keydown', function (e) { if (e.key === 'Enter') addAlert(); });
 
     $('demo-data-btn').addEventListener('click', loadDemo);
 
     $('cloud-connect-btn').addEventListener('click', connectCloud);
 
     $('ai-generate-btn').addEventListener('click', aiGenerate);
+    $('ai-cheap-btn').addEventListener('click', aiCheap);
     $('ai-desc').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); aiGenerate(); } });
     $('ai-add-btn').addEventListener('click', aiAddToList);
     $('ai-save-btn').addEventListener('click', aiSave);
