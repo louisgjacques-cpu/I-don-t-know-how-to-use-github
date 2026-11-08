@@ -2,8 +2,8 @@
 <!-- ============================================================
   L-index.html — Grocery Finder entry page (L = Louis / account kit)
   Mixed file: original store-search site + the L-labeled account kit
-  (sign-in drawer, list, alerts, AI recipes, meal plan, trip history,
-  cloud sync).
+  (sign-in drawer, list, alerts, AI recipes, pantry photo, meal plan,
+  trip history, store comparison, cloud sync).
   Auth0 Domain and Client ID are set inside L-account.js.
 ============================================================ -->
 <html lang="en-CA">
@@ -153,8 +153,9 @@
       <ul id="shopping-list" class="drawer-list"></ul>
       <p id="list-total" class="drawer-total"></p>
       <p id="budget-line" class="drawer-total" hidden></p>
+      <p id="basket-compare" class="drawer-total" hidden></p>
       <button type="button" id="finish-trip-btn" class="ghost-btn wide">✅ Finish trip — archive the checked items</button>
-      <p class="drawer-note">Check items off as you shop, then Finish trip: they're archived with the total (see the Week tab) and removed from the list.</p>
+      <p class="drawer-note">Check items off as you shop, then Finish trip: they're archived with the total (see the Week tab) and removed from the list. Tap 🧺 on an item you already have — it leaves the total but stays on the list.</p>
     </section>
 
     <section id="panel-week" class="drawer-panel">
@@ -173,7 +174,7 @@
         <button type="button" id="add-alert-btn" class="accent-btn">Watch</button>
       </div>
       <input id="alert-target" type="number" step="0.01" min="0" placeholder="Optional target price, e.g. 0.30">
-      <p class="drawer-note">Watch a category. Add a target price and you'll get a feed entry the moment the cheapest unit price drops to it (per 100g, or per egg for eggs).</p>
+      <p class="drawer-note">Watch a category (Superstore prices). Add a target price and you'll get a feed entry the moment the cheapest unit price drops to it (per 100g, or per egg for eggs).</p>
       <ul id="alerts-list" class="drawer-list"></ul>
       <h3 class="feed-title">Price drops</h3>
       <ul id="alerts-feed" class="drawer-list"></ul>
@@ -184,8 +185,13 @@
       <input id="ai-key" type="password" placeholder="Gemini API key (saved on this device)">
       <textarea id="ai-desc" rows="2" placeholder="Describe a recipe — e.g. easy pancakes, no milk"></textarea>
       <button type="button" id="ai-generate-btn" class="accent-btn wide">Make the recipe</button>
-      <button type="button" id="ai-cheap-btn" class="ghost-btn wide">Cook something cheap ✨</button>
-      <p class="drawer-note">Free key: <strong>aistudio.google.com/apikey</strong> → Create API key. Paste it once — it stays on this device. “Cook something cheap” builds a recipe around whatever costs the least this week.</p>
+      <div class="row">
+        <button type="button" id="ai-cheap-btn" class="ghost-btn">Cook something cheap ✨</button>
+        <button type="button" id="pantry-cook-btn" class="ghost-btn">Cook from my 🧺 pantry</button>
+      </div>
+      <button type="button" id="pantry-photo-btn" class="ghost-btn wide">📸 Photo my fridge or pantry — AI finds the ingredients</button>
+      <input id="pantry-photo-input" type="file" accept="image/*" hidden>
+      <p class="drawer-note">Free key: <strong>aistudio.google.com/apikey</strong> → Create API key. Paste it once — it stays on this device. “Cook something cheap” uses the week's cheapest items; “Cook from my pantry” uses what's marked 🧺 on the List tab (or whatever the photo finds — it auto-adds them).</p>
       <div id="ai-result" class="ai-result" hidden>
         <p class="ai-name"><strong id="ai-name"></strong></p>
         <p class="dim">Ingredients</p>
