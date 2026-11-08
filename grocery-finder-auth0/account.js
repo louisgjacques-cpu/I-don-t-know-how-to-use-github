@@ -196,7 +196,13 @@
   function loadPrices() {
     return fetch(PRICES_URL)
       .then(function (r) { return r.ok ? r.json() : null; })
-      .catch(function () { return null; });
+      .catch(function () { return null; })
+      .then(function (p) {
+        // Opening the page by double-click (file://) blocks fetch(), so
+        // fall back to the bundled copy in data/prices-data.js.
+        if (!p && typeof SUPERSTORE_PRICES !== 'undefined') p = SUPERSTORE_PRICES;
+        return p;
+      });
   }
 
   function categories() {
