@@ -52,16 +52,17 @@
 }
 .accent-btn { background: var(--gf-amber); color: #fff; border: 1px solid var(--gf-amber); font-weight: 600; }
 .accent-btn:hover { background: #92400e; }
+.accent-btn:disabled { opacity: .6; cursor: default; }
 .ghost-btn { background: transparent; color: var(--gf-amber); border: 1px solid var(--gf-amber); }
 .ghost-btn:hover { background: var(--gf-amber-soft); }
 .wide { width: 100%; }
 
 /* ---- tabs ---- */
-.drawer-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--gf-border); padding-bottom: 0; }
+.drawer-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--gf-border); padding-bottom: 0; flex-wrap: wrap; }
 .drawer-tab {
   font: inherit; flex: 1; padding: 8px 2px; cursor: pointer;
   background: none; border: none; border-bottom: 2px solid transparent;
-  color: var(--gf-dim); font-size: .84rem;
+  color: var(--gf-dim); font-size: .8rem; min-width: 52px;
 }
 .drawer-tab.active { color: var(--gf-amber); border-bottom-color: var(--gf-amber); font-weight: 600; }
 .badge { background: var(--gf-danger); color: #fff; border-radius: 999px; font-size: .68rem; padding: 1px 6px; margin-left: 4px; }
@@ -128,6 +129,18 @@ label.check > span { display: flex; flex-direction: column; gap: 2px; min-width:
 }
 #budget-line.over { background: #fdeaea; color: #a11; }
 
+/* Week tab: meal plan + trips + streak */
+.plan-list { display: flex; flex-direction: column; gap: 6px; }
+.plan-row select {
+  font: inherit; font-size: .85rem; padding: 8px 10px; width: 100%;
+  border: 1px solid var(--gf-border); border-radius: 10px; background: var(--gf-paper);
+  color: var(--gf-ink);
+}
+.drawer-note.streak { color: var(--gf-amber); font-weight: 600; }
+.feed-row.target { border-left: 4px solid #2e7d32; }
+.feed-row.target strong { color: #2e7d32; }
+.feed-row .dim { display: block; }
+
 /* AI chef result */
 .ai-result {
   background: var(--gf-paper); border: 1px solid var(--gf-border);
@@ -152,7 +165,7 @@ label.check > span { display: flex; flex-direction: column; gap: 2px; min-width:
 [data-theme="dark"] .drawer-list li { background: var(--bg); }
 [data-theme="dark"] #cloud-input, [data-theme="dark"] .row input, [data-theme="dark"] .row select,
 [data-theme="dark"] .drawer-panel > input, [data-theme="dark"] .drawer-panel > textarea,
-[data-theme="dark"] .ai-result { background: var(--bg); color: var(--ink); }
+[data-theme="dark"] .plan-row select, [data-theme="dark"] .ai-result { background: var(--bg); color: var(--ink); }
 [data-theme="dark"] .drawer-note, [data-theme="dark"] .sec-title { color: var(--dim); }
 [data-theme="dark"] #budget-line.over { background: #3a1d1d; color: #ff9d9d; }
 [data-theme="dark"] .tiny-btn.on { opacity: 1; }
