@@ -2,9 +2,8 @@
 <!-- ============================================================
   Grocery Finder — with Auth0 account features (drop-in version)
   Your Auth0 Domain and Client ID are already set inside account.js.
-  Just sign in with the button once the site is served from
-  http://localhost:8000 (sign-in can't run from a double-clicked file).
-  No external auth library needed — account.js talks to Auth0 directly.
+  Sign-in works when served from http://localhost:8000.
+  My Recipes tab: AI generates recipes from a description (Gemini).
 ============================================================ -->
 <html lang="en-CA">
 <head>
@@ -125,7 +124,7 @@
       <button type="button" class="drawer-tab active" data-tab="stores">My Stores</button>
       <button type="button" class="drawer-tab" data-tab="list">List</button>
       <button type="button" class="drawer-tab" data-tab="alerts">Alerts <span id="alert-badge" class="badge" hidden>0</span></button>
-      <button type="button" class="drawer-tab" data-tab="extras">Extras</button>
+      <button type="button" class="drawer-tab" data-tab="extras">My Recipes</button>
     </nav>
 
     <section id="panel-stores" class="drawer-panel active">
@@ -158,10 +157,29 @@
     </section>
 
     <section id="panel-extras" class="drawer-panel">
-      <h4 class="sec-title">Recipe box</h4>
-      <input id="recipe-name" type="text" placeholder="Recipe name, e.g. Pancakes">
+      <h4 class="sec-title">✨ AI chef</h4>
+      <input id="ai-key" type="password" placeholder="Gemini API key (saved on this device)">
+      <textarea id="ai-desc" rows="2" placeholder="Describe a recipe — e.g. easy pancakes, no milk"></textarea>
+      <button type="button" id="ai-generate-btn" class="accent-btn wide">Make the recipe</button>
+      <p class="drawer-note">Free key: <strong>aistudio.google.com/apikey</strong> → Create API key. Paste it once — it stays on this device. Then just describe what you feel like eating.</p>
+      <div id="ai-result" class="ai-result" hidden>
+        <p class="ai-name"><strong id="ai-name"></strong></p>
+        <p class="dim">Ingredients</p>
+        <ul id="ai-ingredients" class="drawer-list"></ul>
+        <p class="dim">Steps</p>
+        <ol id="ai-steps" class="ai-steps"></ol>
+        <div class="row">
+          <button type="button" id="ai-add-btn" class="ghost-btn">Add to list</button>
+          <button type="button" id="ai-save-btn" class="accent-btn">Save recipe</button>
+        </div>
+      </div>
+
+      <h4 class="sec-title">Saved recipes</h4>
+      <div class="row">
+        <input id="recipe-name" type="text" placeholder="Recipe name (manual save)">
+        <button type="button" id="add-recipe-btn" class="accent-btn">Save</button>
+      </div>
       <input id="recipe-ingredients" type="text" placeholder="Ingredients, comma separated: flour, milk, eggs">
-      <button type="button" id="add-recipe-btn" class="accent-btn wide">Save recipe</button>
       <ul id="recipes-list" class="drawer-list"></ul>
 
       <h4 class="sec-title">Weekly budget (optional)</h4>

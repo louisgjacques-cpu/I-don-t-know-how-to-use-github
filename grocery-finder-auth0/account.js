@@ -1,8 +1,8 @@
 /* Grocery Finder — Auth0 account features (zero-CDN edition)
    Sign-in talks to Auth0 directly (PKCE), no external library needed.
    1. One-click Google sign-in  2. My Stores  3. Shopping list
-   4. Simple price-drop watches  5. Optional extras: recipes, budget,
-      pantry marks, device sync code. */
+   4. Simple price-drop watches  5. My Recipes: AI chef (Gemini) +
+      saved recipes + optional budget, pantry marks, device sync code. */
 (function () {
   'use strict';
 
@@ -11,14 +11,17 @@
   var AUTH0_CLIENT_ID = 'tXaIv6bVltFZaBbc8FWPf8rqx0Iuwan4';
   // ================================================================
 
+  var GEMINI_MODEL = 'gemini-2.0-flash';
   var PRICES_URL = 'data/superstore-prices.json';
   var LS_PREFIX  = 'gf-account-';
   var PROFILE_KEY = 'gf-profile';
+  var AI_KEY_STORE = 'gf-gemini-key';
 
   var user   = null;
   var auth0Error = null;
   var prices = null;
   var data   = emptyData();
+  var aiRecipe = null;
 
   function emptyData() {
     return { area: null, stores: [], list: [], alerts: [], lastPrices: {}, feed: [], recipes: [], budget: null };
@@ -47,6 +50,9 @@
     });
     data.list = (data.list || []).map(function (i) {
       return { name: i.name, checked: !!i.checked, pantry: !!i.pantry, matches: i.matches || matchProducts(i.name).slice(0, 3) };
+    });
+    data.recipes = (data.recipes || []).map(function (r) {
+      return { name: r.name, items: r.items || [], steps: r.steps || [] };
     });
   }
   function saveData() {
@@ -91,7 +97,7 @@
         '&code_challenge_method=S256' +
         '&screen_hint=signup';
       if (!tryWithoutGoogle) url += '&connection=google-oauth2';
-      window.location.assign(url);   // off to Google / Auth0 we go
+      window.location.assign(url);
     } catch (e) {
       alert('Sign-in could not start: ' + (e && e.message ? e.message : e));
     }
@@ -314,11 +320,12 @@
     var input = $('list-input');
     var n = (name || input.value).trim().toLowerCase();
     if (!n) return;
-    if (data.list.some(function (i) { return i.name === n; })) return;
+    if (data.list.some(function (i) { return i.name === n; })) return false;
     data.list.push({ name: n, checked: false, pantry: false, matches: matchProducts(n).slice(0, 3) });
     if (!name) input.value = '';
     saveData();
     renderList();
+    return true;
   }
 
   function togglePantry(item) {
@@ -399,7 +406,111 @@
     $('budget-input').value = data.budget == null ? '' : data.budget;
   }
 
-  // ---------- recipe box ----------
+  // ---------- AI chef (Gemini) ----------
+  function getAiKey() {
+    var v = $('ai-key').value.trim();
+    if (v) {
+      try { localStorage.setItem(AI_KEY_STORE, v); } catch (e) {}
+      return v;
+    }
+    try { return localStorage.getItem(AI_KEY_STORE) || ''; } catch (e) { return ''; }
+  }
+
+  function aiFlash(msg) {
+    var btn = $('ai-generate-btn');
+    btn.textContent = msg;
+    setTimeout(function () { btn.textContent = 'Make the recipe'; }, 2600);
+  }
+
+  async function aiGenerate() {
+    var apiKey = getAiKey();
+    if (!apiKey) { aiFlash('Paste your Gemini API key first'); return; }
+    var desc = $('ai-desc').value.trim();
+    if (!desc) { aiFlash('Describe what you want to eat'); return; }
+
+    var btn = $('ai-generate-btn');
+    btn.disabled = true; btn.textContent = 'Cooking…';
+    try {
+      var prompt =
+        'You are a recipe generator for a grocery app. The user will describe what they want to cook. ' +
+        'Keep it simple home cooking with common grocery ingredients. ' +
+        'Reply with ONLY compact JSON, no markdown, in this exact shape: ' +
+        '{"name":"short recipe name","ingredients":["each ingredient with amount, e.g. 2 cups flour"],"steps":["numbered cooking steps"]}. ' +
+        'User request: ' + desc;
+      var res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent?key=' + encodeURIComponent(apiKey), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      });
+      if (!res.ok) {
+        var err = await res.json().catch(function () { return {}; });
+        throw new Error((err.error && err.error.message) || ('Gemini error ' + res.status));
+      }
+      var j = await res.json();
+      var text = (j.candidates && j.candidates[0] && j.candidates[0].content.parts || []).map(function (p) { return p.text || ''; }).join('');
+      var json = JSON.parse(text.replace(/^```(json)?/i, '').replace(/```$/, '').trim());
+      aiRecipe = {
+        name: String(json.name || desc).trim(),
+        items: (json.ingredients || []).map(function (s) { return String(s).toLowerCase().trim(); }).filter(Boolean),
+        steps: (json.steps || []).map(function (s) { return String(s).trim(); }).filter(Boolean)
+      };
+      renderAiResult();
+      btn.textContent = 'Make the recipe';
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'Make the recipe';
+      aiFlash('Failed — ' + (e && e.message ? e.message.slice(0, 60) : 'try again'));
+      console.warn('AI generate failed:', e);
+      return;
+    }
+    btn.disabled = false;
+  }
+
+  function renderAiResult() {
+    var box = $('ai-result');
+    if (!aiRecipe) { box.hidden = true; return; }
+    box.hidden = false;
+    $('ai-name').textContent = aiRecipe.name;
+
+    var ul = $('ai-ingredients');
+    ul.replaceChildren();
+    aiRecipe.items.forEach(function (ing) {
+      var li = document.createElement('li');
+      li.className = 'ai-ing';
+      li.textContent = ing;
+      ul.appendChild(li);
+    });
+
+    var ol = $('ai-steps');
+    ol.replaceChildren();
+    aiRecipe.steps.forEach(function (st) {
+      var li = document.createElement('li');
+      li.textContent = st;
+      ol.appendChild(li);
+    });
+  }
+
+  function aiAddToList() {
+    if (!aiRecipe) return;
+    var added = 0;
+    aiRecipe.items.forEach(function (raw) {
+      // strip amounts: "2 cups flour" -> "flour" for matching
+      var core = raw.replace(/^\s*[\d½¼¾\/\.]+\s*\w*\s*/, '').trim();
+      if (addItem(core || raw)) added++;
+    });
+    var tab = document.querySelector('.drawer-tab[data-tab="list"]');
+    if (tab) tab.click();
+  }
+
+  function aiSave() {
+    if (!aiRecipe) return;
+    if (data.recipes.some(function (r) { return r.name === aiRecipe.name; })) { flashRecipe('Already saved ✓'); return; }
+    data.recipes.push({ name: aiRecipe.name, items: aiRecipe.items, steps: aiRecipe.steps });
+    saveData(); renderRecipes();
+    flashRecipe('Saved ✓');
+  }
+
+  // ---------- saved recipes ----------
   function addRecipe() {
     var name = $('recipe-name').value.trim();
     var raw = $('recipe-ingredients').value.trim();
@@ -407,7 +518,7 @@
     var items = raw.split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean);
     if (!items.length) { flashRecipe('Add at least one ingredient'); return; }
     if (data.recipes.some(function (r) { return r.name === name; })) { flashRecipe('Recipe already saved'); return; }
-    data.recipes.push({ name: name, items: items, createdAt: new Date().toISOString() });
+    data.recipes.push({ name: name, items: items, steps: [] });
     $('recipe-name').value = ''; $('recipe-ingredients').value = '';
     saveData(); renderRecipes();
     flashRecipe('Saved "' + name + '" ✓');
@@ -416,13 +527,14 @@
   function flashRecipe(msg) {
     var btn = $('add-recipe-btn');
     btn.textContent = msg;
-    setTimeout(function () { btn.textContent = 'Save recipe'; }, 1800);
+    setTimeout(function () { btn.textContent = 'Save'; }, 1800);
   }
 
   function addRecipeToList(recipe) {
-    recipe.items.forEach(function (n) {
-      if (data.list.some(function (i) { return i.name === n; })) return;
-      data.list.push({ name: n, checked: false, pantry: false, matches: matchProducts(n).slice(0, 3) });
+    var added = 0;
+    recipe.items.forEach(function (raw) {
+      var core = raw.replace(/^\s*[\d½¼¾\/\.]+\s*\w*\s*/, '').trim();
+      if (addItem(core || raw)) added++;
     });
     saveData(); renderList();
     var tab = document.querySelector('.drawer-tab[data-tab="list"]');
@@ -440,20 +552,31 @@
     if (!data.recipes.length) {
       var li = document.createElement('li');
       li.className = 'empty';
-      li.textContent = 'No recipes yet. Save one above, then add it to your list with one tap.';
+      li.textContent = 'No saved recipes yet. Let the AI chef write one, or save one by hand.';
       ul.appendChild(li);
       return;
     }
     data.recipes.forEach(function (r) {
       var li = document.createElement('li');
-      li.className = 'recipe-row';
+      li.className = 'recipe-row-wrap';
       li.innerHTML =
+        '<div class="recipe-row">' +
         '<span class="store-main"><strong>' + esc(r.name) + '</strong>' +
-        '<span class="dim">' + r.items.length + ' ingredients</span></span>' +
+        '<span class="dim">' + r.items.length + ' ingredients' + (r.steps.length ? ' · ' + r.steps.length + ' steps' : '') + '</span></span>' +
         '<span class="store-actions">' +
         '<button type="button" class="ghost-btn add-all-btn">Add to list</button>' +
-        '<button type="button" class="tiny-danger" aria-label="Remove recipe">✕</button></span>';
+        '<button type="button" class="tiny-btn view-btn" title="View recipe">📖</button>' +
+        '<button type="button" class="tiny-danger" aria-label="Remove recipe">✕</button></span>' +
+        '</div>' +
+        '<div class="recipe-details" hidden>' +
+        '<p class="dim">Ingredients</p><p>' + r.items.map(esc).join(' · ') + '</p>' +
+        (r.steps.length ? '<p class="dim">Steps</p><ol class="ai-steps">' + r.steps.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') + '</ol>' : '') +
+        '</div>';
       li.querySelector('.add-all-btn').addEventListener('click', function () { addRecipeToList(r); });
+      li.querySelector('.view-btn').addEventListener('click', function () {
+        var d = li.querySelector('.recipe-details');
+        d.hidden = !d.hidden;
+      });
       li.querySelector('.tiny-danger').addEventListener('click', function () { removeRecipe(r.name); });
       ul.appendChild(li);
     });
@@ -608,6 +731,11 @@
     $('list-input').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addItem(); } });
     $('add-alert-btn').addEventListener('click', addAlert);
 
+    // AI chef + recipes
+    $('ai-generate-btn').addEventListener('click', aiGenerate);
+    $('ai-desc').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); aiGenerate(); } });
+    $('ai-add-btn').addEventListener('click', aiAddToList);
+    $('ai-save-btn').addEventListener('click', aiSave);
     $('add-recipe-btn').addEventListener('click', addRecipe);
     $('recipe-ingredients').addEventListener('keydown', function (e) { if (e.key === 'Enter') addRecipe(); });
     $('set-budget-btn').addEventListener('click', setBudget);
@@ -630,6 +758,9 @@
       var o = document.createElement('option'); o.value = c;
       o.textContent = c.charAt(0).toUpperCase() + c.slice(1); sel.appendChild(o);
     });
+
+    // prefill saved key
+    try { var k = localStorage.getItem(AI_KEY_STORE); if (k) $('ai-key').value = k; } catch (e) {}
   }
 
   // ---------- init ----------
@@ -638,7 +769,7 @@
 
     if (!onFileProtocol()) {
       try {
-        await finishSignIn();          // handles the ?code=... redirect
+        await finishSignIn();
         if (!user) user = savedProfile();
       } catch (e) {
         auth0Error = (e && e.message) ? e.message : String(e);

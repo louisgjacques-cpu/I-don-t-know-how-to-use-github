@@ -70,7 +70,7 @@
 }
 
 .row { display: flex; gap: 6px; }
-.row input, .row select, .drawer-panel > input {
+.row input, .row select, .drawer-panel > input, .drawer-panel > textarea {
   font: inherit; font-size: .9rem; padding: 9px 10px;
   border: 1px solid var(--gf-border); border-radius: 10px; background: var(--gf-paper);
   min-width: 0; color: var(--gf-ink);
@@ -78,6 +78,7 @@
 .row input { flex: 1; }
 .row select { max-width: 42%; }
 .drawer-panel > input { width: 100%; }
+.drawer-panel > textarea { width: 100%; resize: vertical; font-family: inherit; }
 
 /* ---- lists ---- */
 .drawer-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -93,10 +94,14 @@
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
   font-size: .88rem;
 }
+.recipe-row-wrap { padding: 10px 12px; }
+.recipe-details { margin-top: 8px; border-top: 1px dashed var(--gf-border); padding-top: 8px; font-size: .82rem; }
+.recipe-details .dim { margin: 4px 0 2px; }
 .store-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .store-main .dim, .dim { color: var(--gf-dim); font-size: .78rem; }
 .store-actions { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
 .store-actions a { color: var(--gf-amber); font-size: .8rem; }
+.store-actions .ghost-btn { padding: 5px 10px; font-size: .78rem; }
 .tiny-danger { background: none; border: none; color: var(--gf-dim); cursor: pointer; font-size: .9rem; padding: 2px 4px; }
 .tiny-danger:hover { color: var(--gf-danger); }
 .tiny-btn { background: none; border: none; cursor: pointer; font-size: .95rem; padding: 2px 4px; opacity: .3; }
@@ -117,6 +122,15 @@ label.check > span { display: flex; flex-direction: column; gap: 2px; min-width:
 }
 #budget-line.over { background: #fdeaea; color: #a11; }
 
+/* AI chef result */
+.ai-result {
+  background: var(--gf-paper); border: 1px solid var(--gf-border);
+  border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px;
+}
+.ai-name { font-size: .95rem; }
+.ai-ing { font-size: .84rem; padding: 6px 10px; }
+.ai-steps { margin: 0; padding-left: 18px; font-size: .84rem; display: flex; flex-direction: column; gap: 4px; }
+
 /* alerts feed */
 .feed-title { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--gf-dim); margin: 4px 0 0; }
 .feed-row.drop { border-left: 4px solid var(--gf-amber); }
@@ -131,7 +145,8 @@ label.check > span { display: flex; flex-direction: column; gap: 2px; min-width:
 [data-theme="dark"] .drawer-title { color: var(--ink); }
 [data-theme="dark"] .drawer-list li { background: var(--bg); }
 [data-theme="dark"] .row input, [data-theme="dark"] .row select,
-[data-theme="dark"] .drawer-panel > input { background: var(--bg); color: var(--ink); }
+[data-theme="dark"] .drawer-panel > input, [data-theme="dark"] .drawer-panel > textarea,
+[data-theme="dark"] .ai-result { background: var(--bg); color: var(--ink); }
 [data-theme="dark"] .drawer-note, [data-theme="dark"] .sec-title { color: var(--dim); }
 [data-theme="dark"] #budget-line.over { background: #3a1d1d; color: #ff9d9d; }
 [data-theme="dark"] .tiny-btn.on { opacity: 1; }
