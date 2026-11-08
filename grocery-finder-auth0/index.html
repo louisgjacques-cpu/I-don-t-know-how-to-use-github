@@ -182,6 +182,12 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.auth0.com/js/auth0-spa-js/2/auth0-spa-js.production.js"></script>
+  <script>
+    // If the Auth0 CDN is blocked, load the same library from unpkg instead.
+    if (typeof createAuth0Client === 'undefined') {
+      document.write('<script src="https://unpkg.com/@auth0/auth0-spa-js@2/dist/auth0-spa-js.production.js"><\\/script>');
+    }
+  </script>
   <script src="stores.js"></script>
   <script src="app.js"></script>
   <script src="ingredients.js"></script>
