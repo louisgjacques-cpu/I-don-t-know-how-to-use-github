@@ -116,7 +116,7 @@
         '&code_challenge=' + await pkceChallenge(verifier) +
         '&code_challenge_method=S256' +
         '&screen_hint=signup';
-      if (!tryWithoutGoogle) url += '&connection=google-oauth2';
+      // No forced connection: Auth0's login page shows Google (if enabled) plus email/password.
       window.location.assign(url);
     } catch (e) {
       alert('Sign-in could not start: ' + (e && e.message ? e.message : e));
@@ -125,6 +125,13 @@
 
   async function finishSignIn() {
     var params = new URLSearchParams(window.location.search);
+    if (params.has('error')) {
+      // Auth0 sent the user back with an error (e.g. Google login not enabled)
+      auth0Error = params.get('error_description') || params.get('error');
+      sessionStorage.removeItem('gf-pkce-verifier');
+      window.history.replaceState({}, '', RETURN_TO);
+      return true;
+    }
     if (!params.has('code')) return false;
     var verifier = sessionStorage.getItem('gf-pkce-verifier');
     try {
