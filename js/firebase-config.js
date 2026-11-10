@@ -1,4 +1,4 @@
-/* LO-firebase-config.js — your Firebase web config (project grocery-finder-lo-7143).
+/* js/firebase-config.js — your Firebase web config (project grocery-finder-lo-7143).
    This is NOT a secret: Firebase web configs are meant to be public.
    Your data is protected by the Firestore rules, not by hiding this. */
 window.LO_FIREBASE_CONFIG = {

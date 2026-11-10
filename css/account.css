@@ -1,4 +1,4 @@
-/* L-account.css — drawer styles for the L account kit (cream/amber) */
+/* css/account.css — drawer + sign-in form styles */
 
 :root {
   --gf-cream: #faf7f2;
@@ -167,3 +167,17 @@ label.check > span { display: flex; flex-direction: column; gap: 2px; min-width:
 [data-theme="dark"] .drawer-note, [data-theme="dark"] .sec-title { color: var(--dim); }
 [data-theme="dark"] #budget-line.over { background: #3a1d1d; color: #ff9d9d; }
 [data-theme="dark"] .tiny-btn.on { opacity: 1; }
+
+/* ---- LO sign-in form ---- */
+#user-when-out { display: flex; flex-direction: column; gap: 8px; }
+#user-when-out input {
+  width: 100%; box-sizing: border-box; padding: 9px 10px; border-radius: 8px;
+  border: 1px solid var(--gf-border); background: var(--gf-paper); color: var(--gf-ink); font: inherit;
+}
+#user-when-out .row { display: flex; gap: 8px; }
+#user-when-out .row button { flex: 1; }
+.lo-or { text-align: center; font-size: .78rem; color: var(--gf-dim); margin: 2px 0; }
+.lo-reset { align-self: flex-start; font-size: .8rem; }
+.lo-error { color: var(--gf-danger); font-weight: 600; }
+.lo-ok { color: #166534; font-weight: 600; }
+[data-theme="dark"] #user-when-out input { background: #1d1d22; color: #eee; border-color: #444; }

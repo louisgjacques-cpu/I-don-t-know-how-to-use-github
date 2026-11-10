@@ -1,4 +1,4 @@
-/* L-ingredients.js — the 400 common ingredients, for shopping-list autocomplete (L kit). */
+/* L-ingredients.js — the 400 common ingredients, for shopping-list autocomplete. */
 var INGREDIENTS = [
   "all purpose flour", "all-purpose seasoning", "allspice", "apple cider vinegar", "asparagus",
   "aubergine", "avocado", "baby new potatoes", "baby plum tomatoes", "bacon",

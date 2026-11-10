@@ -1,5 +1,5 @@
-/* LO-account.js — Grocery Finder account features (LO = Louis, Firebase version)
-   Sign-in and online storage come from LO-auth.js (window.LOAuth).
+/* js/account.js — Grocery Finder account features
+   Sign-in and online storage come from js/auth.js (window.LOAuth).
    Everything a user saves is kept in their browser AND in Firebase,
    so it is still there when they come back or use another device.
    Features: My Stores, shopping list (prices across retailers, pantry),
@@ -12,7 +12,7 @@
 
 
   var GEMINI_MODEL = 'gemini-2.0-flash';
-  var PRICES_URL = 'data/LO-superstore-prices.json';
+  var PRICES_URL = 'data/superstore-prices.json';
   var LS_PREFIX  = 'gf-account-';
   var AI_KEY_STORE = 'gf-gemini-key';
   var DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -68,7 +68,7 @@
     checkAlerts();
   }
 
-  // ---------- sign-in: Firebase via LO-auth.js ----------
+  // ---------- sign-in: Firebase via js/auth.js ----------
   function onFileProtocol() {
     return window.location.protocol === 'file:';
   }
@@ -124,7 +124,7 @@
     try { await authApi().signOut(); } catch (e) { alert(e.message || e); }
   }
 
-  // Called by LO-auth.js whenever someone logs in or out
+  // Called by js/auth.js whenever someone logs in or out
   async function onAuthChange(u) {
     var wasGuest = !user;
     var guestData = data;
@@ -206,7 +206,7 @@
     if (tab) tab.click();
   }
 
-  // ---------- online storage (Firebase, via LO-auth.js) ----------
+  // ---------- online storage (Firebase, via js/auth.js) ----------
   function cloudStatus(msg) {
     var el = $('cloud-status');
     if (el) el.textContent = msg;

@@ -1,4 +1,13 @@
-{
+/* data/prices-data.js — bundled copy of the price data.
+   Lets the shopping list, store comparison and price alerts work even when
+   the site is opened by double-clicking (file://), where fetch() of the
+   JSON is blocked. The JSON file is still preferred when running via a server.
+
+   TWO SAMPLE RETAILERS are included so the basket comparison (List tab)
+   has something to compare. Replace both with your real scraper output:
+   add one block per store under "retailers" and the comparison UI lights
+   up automatically. */
+var SUPERSTORE_PRICES = {
   "importedAt": "2025-11-01T00:00:00.000Z",
   "retailers": {
     "superstore": {
@@ -42,4 +51,4 @@
       }
     }
   }
-}
+};

@@ -1,17 +1,17 @@
-/* LO-auth.js — Grocery Finder sign-in + online storage (LO = Louis, Firebase version)
+/* js/auth.js — Grocery Finder sign-in + online storage
    - Sign up / log in with email + password, or with Google
    - Saves each user's account data in Firestore (collection LOusers, one doc per user)
-   - Firebase files are bundled in LO-vendor/, so nothing loads from other sites
-   Exposes window.LOAuth for LO-account.js. */
-import { initializeApp } from './LO-vendor/LO-firebase-app.js';
+   - Firebase files are bundled in js/vendor/, so nothing loads from other sites
+   Exposes window.LOAuth for js/account.js. */
+import { initializeApp } from './vendor/firebase-app.js';
 import {
   getAuth, connectAuthEmulator, onAuthStateChanged, setPersistence, browserLocalPersistence,
   createUserWithEmailAndPassword, signInWithEmailAndPassword, signInWithPopup,
   GoogleAuthProvider, updateProfile, sendPasswordResetEmail, signOut as fbSignOut
-} from './LO-vendor/LO-firebase-auth.js';
+} from './vendor/firebase-auth.js';
 import {
   getFirestore, connectFirestoreEmulator, doc, getDoc, setDoc
-} from './LO-vendor/LO-firebase-firestore.js';
+} from './vendor/firebase-firestore.js';
 
 var cfg = window.LO_FIREBASE_CONFIG;
 var configured = !!(cfg && cfg.apiKey && cfg.projectId);
@@ -68,7 +68,7 @@ if (configured) {
 }
 
 function need() {
-  if (!configured) throw new Error('Sign-in isn\'t set up yet: the Firebase config is missing from LO-firebase-config.js.');
+  if (!configured) throw new Error('Sign-in isn\'t set up yet: the Firebase config is missing from js/firebase-config.js.');
 }
 async function wrap(p) {
   try { return await p; } catch (e) { throw new Error(nice(e)); }
